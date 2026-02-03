@@ -1,0 +1,7 @@
+{
+  "name": "territory-grab",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ]
+}
