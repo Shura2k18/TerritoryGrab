@@ -73,6 +73,15 @@ export interface JoinRoomDto {
   password?: string;
 }
 
+export interface LeaveRoomDto {
+  roomId: string;
+}
+
+export interface KickPlayerDto {
+  roomId: string;
+  targetId: string; // Кого кікаємо
+}
+
 export interface RematchDto {
   roomId: string;
 }

@@ -19,7 +19,13 @@ export class GameService {
     const newRoom: Room = {
       id: roomId,
       hostId: client.id,
-      settings: { ...dto.settings, boardSize: size },
+      // settings: { ...dto.settings, boardSize: size },
+      settings: {
+        maxPlayers: 4,
+        boardSize: size,
+        isPrivate: dto.settings.isPrivate || false,
+        password: dto.settings.password
+      },
       players: [{
         id: client.id,
         username: dto.username,
@@ -43,7 +49,11 @@ export class GameService {
     if (!room) throw new Error('Room not found');
     if (room.status !== 'lobby') throw new Error('Game already started');
     if (room.players.length >= room.settings.maxPlayers) throw new Error('Room full');
-
+    if (room.settings.isPrivate) {
+       if (room.settings.password !== password) {
+          throw new Error('Invalid password'); // Невірний пароль
+       }
+    }
     const colorIndex = room.players.length % PLAYER_COLORS.length;
     room.players.push({
       id: client.id,
@@ -165,5 +175,57 @@ export class GameService {
     }
 
     return room;
+  }
+
+  // --- ЛОГІКА ВИХОДУ ---
+  leaveRoom(clientId: string, roomId: string): Room | null {
+    const room = this.rooms.get(roomId);
+    if (!room) return null;
+
+    // Видаляємо гравця
+    room.players = room.players.filter(p => p.id !== clientId);
+
+    // Якщо нікого не залишилось - видаляємо кімнату
+    if (room.players.length === 0) {
+       this.rooms.delete(roomId);
+       return null; // Кімната знищена
+    }
+
+    // Якщо вийшов ХОСТ -> передаємо права наступному
+    if (room.hostId === clientId) {
+       room.hostId = room.players[0].id; // Новий хост - перший у списку
+       console.log(`[HOST CHANGED] New host for ${roomId} is ${room.players[0].username}`);
+    }
+
+    // Якщо гра йшла - можна її зупинити або продовжити (для MVP краще скинути в лобі)
+    if (room.status === 'playing' && room.players.length < 2) {
+       room.status = 'finished'; // Або 'lobby'
+    }
+
+    return room;
+  }
+
+  // --- ЛОГІКА КІКУ ---
+  kickPlayer(hostId: string, roomId: string, targetId: string): Room {
+     const room = this.rooms.get(roomId);
+     if (!room) throw new Error('Room not found');
+
+     // Перевірка прав (тільки хост може кікати)
+     if (room.hostId !== hostId) {
+        throw new Error('Only host can kick players');
+     }
+
+     // Не можна кікнути самого себе
+     if (hostId === targetId) {
+        throw new Error("Cannot kick yourself");
+     }
+
+     // Видаляємо гравця
+     room.players = room.players.filter(p => p.id !== targetId);
+     
+     // Скидаємо готовність інших, щоб випадково не почати гру
+     room.players.forEach(p => p.isReady = false);
+
+     return room;
   }
 }

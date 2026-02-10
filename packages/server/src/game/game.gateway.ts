@@ -8,7 +8,7 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { GameService } from './game.service';
-import type { CreateRoomDto, JoinRoomDto, MakeMoveDto } from '@territory/shared';
+import type { CreateRoomDto, JoinRoomDto, MakeMoveDto, KickPlayerDto } from '@territory/shared';
 
 @WebSocketGateway({ cors: { origin: '*' } }) // Додав CORS на всяк випадок явно
 export class GameGateway {
@@ -104,5 +104,42 @@ export class GameGateway {
       const room = this.gameService.voteRematch(client.id, payload.roomId);
       this.server.to(room.id).emit('gameUpdated', room);
     } catch (e) { client.emit('error', e.message); }
+  }
+
+  @SubscribeMessage('leaveRoom')
+  handleLeaveRoom(@ConnectedSocket() client: Socket, @MessageBody() payload: { roomId: string }) {
+    // Викликаємо сервіс
+    const room = this.gameService.leaveRoom(client.id, payload.roomId);
+    
+    // Виходимо з кімнати сокетів
+    client.leave(payload.roomId);
+    client.emit('leftRoom'); // Повідомляємо клієнту, що він вийшов
+
+    // Якщо кімната ще існує - сповіщаємо інших
+    if (room) {
+       this.server.to(room.id).emit('gameUpdated', room);
+    }
+  }
+
+  @SubscribeMessage('kickPlayer')
+  handleKickPlayer(@ConnectedSocket() client: Socket, @MessageBody() payload: KickPlayerDto) {
+    try {
+       const room = this.gameService.kickPlayer(client.id, payload.roomId, payload.targetId);
+       
+       // 1. Сповіщаємо кікнутого гравця (через його socket ID)
+       this.server.to(payload.targetId).emit('kicked', 'You have been kicked by the host.');
+       
+       // 2. Змушуємо його сокет вийти з кімнати
+       const targetSocket = this.server.sockets.sockets.get(payload.targetId);
+       if (targetSocket) {
+          targetSocket.leave(payload.roomId);
+       }
+
+       // 3. Оновлюємо всіх інших
+       this.server.to(room.id).emit('gameUpdated', room);
+
+    } catch (e) {
+       client.emit('error', e.message);
+    }
   }
 }
