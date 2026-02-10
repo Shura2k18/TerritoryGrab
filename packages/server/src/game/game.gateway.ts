@@ -17,6 +17,15 @@ export class GameGateway {
 
   constructor(private readonly gameService: GameService) {}
 
+  private broadcastRooms() {
+    const rooms = this.gameService.getAvailableRooms();
+    this.server.emit('roomsList', rooms);
+  }
+
+  handleConnection(client: Socket) {
+    client.emit('roomsList', this.gameService.getAvailableRooms());
+  }
+
   @SubscribeMessage('createGame')
   handleCreateGame(
     @ConnectedSocket() client: Socket,
@@ -28,6 +37,7 @@ export class GameGateway {
       
       // Відправляємо подію roomCreated автору (щоб він перейшов на екран гри)
       client.emit('roomCreated', room);
+      this.broadcastRooms();
     } catch (e) {
       client.emit('error', e.message);
     }
@@ -49,6 +59,7 @@ export class GameGateway {
       // 2. Сповіщаємо ВСІХ у кімнаті (включно з новим гравцем) про новий стан
       // Використовуємо 'gameUpdated', бо GameRoom слухає саме його
       this.server.to(room.id).emit('gameUpdated', room);
+      this.broadcastRooms();
       
     } catch (e) {
       client.emit('error', e.message);
@@ -114,6 +125,7 @@ export class GameGateway {
     // Виходимо з кімнати сокетів
     client.leave(payload.roomId);
     client.emit('leftRoom'); // Повідомляємо клієнту, що він вийшов
+    this.broadcastRooms();
 
     // Якщо кімната ще існує - сповіщаємо інших
     if (room) {
@@ -141,5 +153,9 @@ export class GameGateway {
     } catch (e) {
        client.emit('error', e.message);
     }
+  }
+  @SubscribeMessage('getRooms')
+  handleGetRooms(client: Socket) {
+    client.emit('roomsList', this.gameService.getAvailableRooms());
   }
 }

@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Socket } from 'socket.io';
 import { v4 as uuidv4 } from 'uuid';
-import { Room, CreateRoomDto, MakeMoveDto, PLAYER_COLORS } from '@territory/shared';
+import { Room, CreateRoomDto, MakeMoveDto, PLAYER_COLORS, RoomSummary } from '@territory/shared';
 
 @Injectable()
 export class GameService {
@@ -227,5 +227,21 @@ export class GameService {
      room.players.forEach(p => p.isReady = false);
 
      return room;
+  }
+
+  getAvailableRooms(): RoomSummary[] {
+    return Array.from(this.rooms.values())
+      .filter(room => 
+        !room.settings.isPrivate &&      // Тільки публічні
+        room.status === 'lobby' &&       // Тільки ті, що ще не почалися
+        room.players.length < room.settings.maxPlayers // Де є місця
+      )
+      .map(room => ({
+        id: room.id,
+        hostName: room.players.find(p => p.id === room.hostId)?.username || 'Unknown',
+        currentPlayers: room.players.length,
+        maxPlayers: room.settings.maxPlayers,
+        boardSize: room.settings.boardSize
+      }));
   }
 }

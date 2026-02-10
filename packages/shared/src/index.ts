@@ -100,3 +100,11 @@ export interface GameStateUpdate {
   currentTurnIndex: number; // чий зараз хід
   players: Player[]; // щоб оновити статуси (напр. хтось вийшов)
 }
+
+export interface RoomSummary {
+  id: string;
+  hostName: string;
+  currentPlayers: number;
+  maxPlayers: number;
+  boardSize: number;
+}
