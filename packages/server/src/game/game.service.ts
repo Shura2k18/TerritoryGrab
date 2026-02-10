@@ -1,8 +1,7 @@
-// game/game.service.ts
 import { Injectable } from '@nestjs/common';
 import { Socket } from 'socket.io';
-import { Room, Player, GameSettings, CreateRoomDto } from '@territory/shared';
-import { v4 as uuidv4 } from 'uuid'; // npm install uuid, або просто Math.random()
+import { v4 as uuidv4 } from 'uuid';
+import { Room, CreateRoomDto, MakeMoveDto, PLAYER_COLORS } from '@territory/shared';
 
 @Injectable()
 export class GameService {
@@ -10,85 +9,161 @@ export class GameService {
 
   createRoom(client: Socket, dto: CreateRoomDto): Room {
     const roomId = uuidv4().slice(0, 6).toUpperCase();
+    
+    let size = dto.settings.boardSize;
+    if (size < 10) size = 10;
+    if (size > 200) size = 200;
+
+    const initialBoard = Array(size).fill(null).map(() => Array(size).fill(null));
 
     const newRoom: Room = {
       id: roomId,
       hostId: client.id,
-      settings: dto.settings, // Використовуємо налаштування з DTO
+      settings: { ...dto.settings, boardSize: size },
       players: [{
         id: client.id,
         username: dto.username,
         isReady: false,
-        color: 'red' // Можна задати дефолтний колір
+        color: PLAYER_COLORS[0],
+        wantsRematch: false
       }],
       status: 'lobby',
-      currentTurnIndex: 0
+      currentTurnIndex: 0,
+      board: initialBoard,
+      consecutiveSkips: 0 // Починаємо з 0
     };
 
     this.rooms.set(roomId, newRoom);
     return newRoom;
   }
 
+  // --- ПРИЄДНАННЯ ---
   joinRoom(client: Socket, roomId: string, username: string, password?: string): Room {
     const room = this.rooms.get(roomId);
+    if (!room) throw new Error('Room not found');
+    if (room.status !== 'lobby') throw new Error('Game already started');
+    if (room.players.length >= room.settings.maxPlayers) throw new Error('Room full');
 
-    if (!room) throw new Error('Кімнату не знайдено');
-    // ... валідація ...
-    if (room.settings.isPrivate && room.settings.password !== password) {
-       throw new Error('Невірний пароль');
-    }
-
-    const newPlayer: Player = {
+    const colorIndex = room.players.length % PLAYER_COLORS.length;
+    room.players.push({
       id: client.id,
       username,
       isReady: false,
-      color: 'blue' // Тут треба логіку видачі вільних кольорів
-    };
-
-    room.players.push(newPlayer);
+      color: PLAYER_COLORS[colorIndex]
+    });
     return room;
   }
 
-  // Логіка старту "за згодою"
-  toggleReady(clientId: string, roomId: string): { room: Room, shouldStart: boolean } {
+  // --- ХІД ГРАВЦЯ ---
+  makeMove(clientId: string, dto: MakeMoveDto): Room {
+    const room = this.rooms.get(dto.roomId);
+    
+    if (!room) throw new Error('Room not found');
+    if (!room.board) throw new Error('Board not initialized');
+    const playerIndex = room.players.findIndex(p => p.id === clientId);
+    if (playerIndex !== room.currentTurnIndex) throw new Error('Not your turn');
+
+    for (let r = 0; r < dto.h; r++) {
+      for (let c = 0; c < dto.w; c++) {
+        if (room.board[dto.y + r] !== undefined) {
+           room.board[dto.y + r][dto.x + c] = clientId;
+        }
+      }
+    }
+    room.consecutiveSkips = 0;
+
+    room.currentTurnIndex = (room.currentTurnIndex + 1) % room.players.length;
+    return room;
+  }
+
+  toggleReady(clientId: string, roomId: string): Room {
     const room = this.rooms.get(roomId);
-    if (!room) throw new Error('Кімнату не знайдено');
+    if (!room) throw new Error('Room not found');
 
     const player = room.players.find(p => p.id === clientId);
-    if (player) player.isReady = !player.isReady;
+    if (!player) throw new Error('Player not found');
 
-    // ПЕРЕВІРКА: Чи можна починати гру?
-    // 1. Мінімум 2 гравці
-    // 2. Всі поточні гравці натиснули Ready
-    const minPlayers = 2;
-    const allReady = room.players.every(p => p.isReady);
-    const enoughPlayers = room.players.length >= minPlayers;
-
-    const shouldStart = allReady && enoughPlayers;
+    player.isReady = !player.isReady;
     
-    if (shouldStart) {
-      this.startGame(room);
+    // Автостарт прибрано!
+    return room;
+  }
+
+  startGame(clientId: string, roomId: string): Room {
+    const room = this.rooms.get(roomId);
+    if (!room) throw new Error('Room not found');
+
+    // Перевірка: чи це Хост?
+    if (room.hostId !== clientId) {
+      throw new Error('Only the host can start the game');
     }
 
-    return { room, shouldStart };
-  }
+    // Перевірка: чи достатньо гравців (мін 2)
+    if (room.players.length < 2) {
+      throw new Error('Need at least 2 players to start');
+    }
 
-  private startGame(room: Room) {
+    // Перевірка: чи всі готові?
+    const allReady = room.players.every(p => p.isReady);
+    if (!allReady) {
+      throw new Error('All players must be Ready');
+    }
+
     room.status = 'playing';
-    // Генеруємо пусте поле на основі налаштувань (size)
-    const size = room.settings.boardSize;
-    // Створюємо матрицю size x size, заповнену нулями
-    room.board = Array(size).fill(null).map(() => Array(size).fill(0));
+    console.log(`[START] Room ${roomId} started by Host`);
+    return room;
   }
 
-  getRoom(roomId: string): Room | undefined {
-    return this.rooms.get(roomId);
+  skipTurn(clientId: string, roomId: string): Room {
+    const room = this.rooms.get(roomId);
+    if (!room) throw new Error('Error');
+    
+    const idx = room.players.findIndex(p => p.id === clientId);
+    if (idx !== room.currentTurnIndex) throw new Error('Not turn');
+
+    // ЗБІЛЬШУЄМО ЛІЧИЛЬНИК
+    room.consecutiveSkips++;
+    console.log(`[SKIP] Skips: ${room.consecutiveSkips}/${room.players.length * 3}`);
+
+    // ПЕРЕВІРКА НА КІНЕЦЬ ГРИ
+    if (room.consecutiveSkips >= room.players.length * 3) {
+       room.status = 'finished';
+       console.log(`[GAME OVER] Room ${roomId}`);
+    } else {
+       // Передаємо хід далі
+       room.currentTurnIndex = (room.currentTurnIndex + 1) % room.players.length;
+    }
+
+    return room;
   }
-  
-  // Метод для отримання списку публічних кімнат
-  getPublicRooms() {
-      // Конвертуємо Map у масив і фільтруємо
-      return Array.from(this.rooms.values())
-          .filter(room => !room.settings.isPrivate && room.status === 'lobby');
+
+  voteRematch(clientId: string, roomId: string): Room {
+    const room = this.rooms.get(roomId);
+    if (!room) throw new Error('Error');
+
+    const player = room.players.find(p => p.id === clientId);
+    if (player) player.wantsRematch = true;
+
+    // Перевіряємо, чи всі хочуть реванш
+    const allWantRematch = room.players.every(p => p.wantsRematch);
+
+    if (allWantRematch) {
+      // РЕСТАРТ ГРИ
+      const size = room.settings.boardSize;
+      room.board = Array(size).fill(null).map(() => Array(size).fill(null)); // Очищаємо поле
+      room.status = 'playing';
+      room.currentTurnIndex = 0;
+      room.consecutiveSkips = 0;
+      
+      // Скидаємо голоси
+      room.players.forEach(p => {
+        p.wantsRematch = false;
+        p.isReady = true; // Вони вже готові
+      });
+      
+      console.log(`[RESTART] Room ${roomId}`);
+    }
+
+    return room;
   }
 }

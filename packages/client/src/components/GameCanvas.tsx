@@ -1,28 +1,25 @@
-import React, { useRef, useEffect, useState } from 'react';
-
-type CellOwner = 'p1' | 'p2' | null;
+import { useRef, useEffect, useState } from 'react';
+import type { Player } from '@territory/shared';
 
 interface GameCanvasProps {
-  grid: CellOwner[][];
-  cellSize?: number;
-  // Нова пропса: розміри фігури, яку гравець зараз тримає в руках
-  activeRect?: { w: number, h: number } | null; 
-  onCellClick?: (x: number, y: number) => void;
+  grid: (string | null)[][]; 
+  players: Player[]; // <--- Переконайся, що цей пропс тут є
+  cellSize: number;
+  activeRect: { w: number, h: number } | null;
+  onCellClick: (x: number, y: number) => void;
+  checkValidity?: (x: number, y: number) => boolean;
 }
 
-export const GameCanvas: React.FC<GameCanvasProps> = ({ 
+export const GameCanvas = ({ 
   grid, 
-  cellSize = 20, 
+  players, 
+  cellSize, 
   activeRect, 
-  onCellClick 
-}) => {
+  onCellClick, 
+  checkValidity 
+}: GameCanvasProps) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [hoverPos, setHoverPos] = useState<{x: number, y: number} | null>(null);
-
-  const rows = grid.length;
-  const cols = grid[0]?.length || 0;
-  const width = cols * cellSize;
-  const height = rows * cellSize;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -30,99 +27,86 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
+    const rows = grid.length;
+    const cols = grid[0].length;
+
+    canvas.width = cols * cellSize;
+    canvas.height = rows * cellSize;
+
     // 1. Очищення
-    ctx.clearRect(0, 0, width, height);
-
-    // 2. Малювання існуючої сітки (шар 1)
-    for (let y = 0; y < rows; y++) {
-      for (let x = 0; x < cols; x++) {
-        const cell = grid[y][x];
-        const posX = x * cellSize;
-        const posY = y * cellSize;
-
-        // Фон зайнятих
-        if (cell) {
-          ctx.fillStyle = cell === 'p1' ? '#ef4444' : '#3b82f6';
-          ctx.fillRect(posX, posY, cellSize, cellSize);
-        }
-
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    // 2. Малюємо поле
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
         // Сітка
-        ctx.strokeStyle = '#e5e7eb';
+        ctx.strokeStyle = '#334155'; // Slate-700
         ctx.lineWidth = 1;
-        ctx.strokeRect(posX, posY, cellSize, cellSize);
+        ctx.strokeRect(c * cellSize, r * cellSize, cellSize, cellSize);
+        
+        const cellOwnerId = grid[r][c];
+
+        // ЯКЩО КЛІТИНКА ЗАЙНЯТА
+        if (cellOwnerId) {
+           // Шукаємо гравця у списку за ID
+           const owner = players.find(p => p.id === cellOwnerId);
+           
+           // Беремо його колір (або сірий, якщо раптом не знайшли)
+           ctx.fillStyle = owner?.color || '#94a3b8'; 
+           
+           // Малюємо квадрат
+           ctx.fillRect(c * cellSize, r * cellSize, cellSize, cellSize);
+           
+           // Трохи світліша рамка для краси
+           ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+           ctx.strokeRect(c * cellSize, r * cellSize, cellSize, cellSize);
+        }
       }
     }
 
-    // 3. Малювання "Примарної фігури" (Ghost Piece) (шар 2)
+    // 3. Малюємо курсор (Preview)
     if (hoverPos && activeRect) {
       const { x, y } = hoverPos;
       const { w, h } = activeRect;
 
-      // Перевіряємо валіданість (візуально)
       let isValid = true;
-      
-      // Перевірка меж
-      if (x + w > cols || y + h > rows) {
-        isValid = false;
-      } else {
-        // Перевірка накладання
-        for (let ry = 0; ry < h; ry++) {
-          for (let rx = 0; rx < w; rx++) {
-            if (grid[y + ry][x + rx] !== null) {
-              isValid = false;
-              break;
-            }
-          }
-        }
+      if (checkValidity) {
+        isValid = checkValidity(x, y);
       }
 
-      // Вибір кольору: Зелений (OK) або Червоний (Error)
-      // Використовуємо rgba для прозорості
-      ctx.fillStyle = isValid ? 'rgba(34, 197, 94, 0.5)' : 'rgba(239, 68, 68, 0.5)'; 
-      ctx.strokeStyle = isValid ? '#15803d' : '#b91c1c';
-      
-      // Малюємо прямокутник "привида"
-      // Примітка: ми малюємо не по клітинках, а одразу великий прямокутник
-      // Але щоб було гарно, краще все ж таки по клітинках або просто рамку
+      // Зелений або Червоний (напівпрозорий)
+      ctx.fillStyle = isValid ? 'rgba(34, 197, 94, 0.5)' : 'rgba(239, 68, 68, 0.5)';
       ctx.fillRect(x * cellSize, y * cellSize, w * cellSize, h * cellSize);
+      
+      // Рамка курсора
+      ctx.strokeStyle = isValid ? '#16a34a' : '#dc2626';
+      ctx.lineWidth = 2;
       ctx.strokeRect(x * cellSize, y * cellSize, w * cellSize, h * cellSize);
-    }
-    // Якщо фігури немає, але мишка на полі — малюємо просто курсор
-    else if (hoverPos) {
-       ctx.fillStyle = 'rgba(0,0,0,0.1)';
-       ctx.fillRect(hoverPos.x * cellSize, hoverPos.y * cellSize, cellSize, cellSize);
-    }
+    } 
 
-  }, [grid, hoverPos, activeRect, cellSize, rows, cols]); 
+  }, [grid, players, hoverPos, activeRect, cellSize, checkValidity]);
 
-  const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+  const handleMouseMove = (e: React.MouseEvent) => {
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const x = Math.floor((e.clientX - rect.left) / cellSize);
+    const y = Math.floor((e.clientY - rect.top) / cellSize);
+    setHoverPos({ x, y });
+  };
 
-    const col = Math.floor(x / cellSize);
-    const row = Math.floor(y / cellSize);
+  const handleMouseLeave = () => setHoverPos(null);
 
-    if (col >= 0 && col < cols && row >= 0 && row < rows) {
-      setHoverPos({ x: col, y: row });
-    } else {
-      setHoverPos(null);
-    }
+  const handleClick = () => {
+    if (hoverPos) onCellClick(hoverPos.x, hoverPos.y);
   };
 
   return (
-    <canvas
+    <canvas 
       ref={canvasRef}
-      width={width}
-      height={height}
       onMouseMove={handleMouseMove}
-      onMouseLeave={() => setHoverPos(null)}
-      onClick={() => hoverPos && onCellClick?.(hoverPos.x, hoverPos.y)}
-      // Забираємо дефолтне меню на правий клік, щоб використати його для повороту
-      onContextMenu={(e) => e.preventDefault()} 
-      style={{ cursor: 'none', border: '1px solid #ccc' }} // cursor: none, бо ми малюємо свій
+      onMouseLeave={handleMouseLeave}
+      onClick={handleClick}
+      className="cursor-pointer block"
     />
   );
 };

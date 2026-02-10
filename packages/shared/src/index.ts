@@ -15,6 +15,16 @@ export const GAME_NAME = "Territory Grab";
 //   diceRolled: (dice: [number, number]) => void;
 // }
 
+export const PLAYER_COLORS = [
+  '#3b82f6', // P1: Blue
+  '#ef4444', // P2: Red
+  '#22c55e', // P3: Green
+  '#eab308', // P4: Yellow
+];
+
+// Можна також додати тип, щоб TS підказував кольори
+export type PlayerColor = typeof PLAYER_COLORS[number];
+
 export type GameStatus = 'lobby' | 'playing' | 'finished';
 
 export interface GameSettings {
@@ -25,10 +35,11 @@ export interface GameSettings {
 }
 
 export interface Player {
-  id: string;       // socket.id
-  username: string; 
-  isReady: boolean; // Статус "Готовий"
-  color?: string;   // Колір для UI
+  id: string;
+  username: string;
+  isReady: boolean;
+  color: string;
+  wantsRematch?: boolean;
 }
 
 export interface Room {
@@ -38,9 +49,17 @@ export interface Room {
   players: Player[];
   status: GameStatus;
   currentTurnIndex: number;
-  board?: number[][];     // Стан поля (додаємо, коли гра почалась)
+  board?: (string | null)[][];
+  consecutiveSkips: number;
+}
+export interface ToggleReadyDto {
+  roomId: string;
 }
 
+// Додаємо подію для пропуску ходу
+export interface SkipTurnDto {
+  roomId: string;
+}
 // DTO для створення кімнати (те, що приходить з фронта)
 export interface CreateRoomDto {
   username: string;
@@ -52,4 +71,23 @@ export interface JoinRoomDto {
   roomId: string;
   username: string;
   password?: string;
+}
+
+export interface RematchDto {
+  roomId: string;
+}
+
+export interface MakeMoveDto {
+  roomId: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+// Додамо подію для оновлення гри
+export interface GameStateUpdate {
+  board: any[][]; // або number[][], залежно як ти зберігаєш
+  currentTurnIndex: number; // чий зараз хід
+  players: Player[]; // щоб оновити статуси (напр. хтось вийшов)
 }

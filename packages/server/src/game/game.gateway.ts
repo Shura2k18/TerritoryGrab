@@ -3,15 +3,15 @@ import {
   SubscribeMessage, 
   MessageBody, 
   ConnectedSocket, 
-  WebSocketServer 
+  WebSocketServer,
+  OnGatewayConnection
 } from '@nestjs/websockets';
-import { Server, Socket } from 'socket.io'; // Перевір імпорт Server
+import { Server, Socket } from 'socket.io';
 import { GameService } from './game.service';
-import type { CreateRoomDto, JoinRoomDto } from '@territory/shared';
+import type { CreateRoomDto, JoinRoomDto, MakeMoveDto } from '@territory/shared';
 
-@WebSocketGateway({ cors: true })
+@WebSocketGateway({ cors: { origin: '*' } }) // Додав CORS на всяк випадок явно
 export class GameGateway {
-  // 1. ВИПРАВЛЕННЯ: Додаємо декоратор сервера, щоб мати доступ до this.server
   @WebSocketServer()
   server: Server;
 
@@ -24,10 +24,9 @@ export class GameGateway {
   ) {
     try {
       const room = this.gameService.createRoom(client, payload);
-      
-      // 2. ВИПРАВЛЕННЯ: Автор теж має фізично вступити в кімнату сокетів
       client.join(room.id);
       
+      // Відправляємо подію roomCreated автору (щоб він перейшов на екран гри)
       client.emit('roomCreated', room);
     } catch (e) {
       client.emit('error', e.message);
@@ -40,39 +39,70 @@ export class GameGateway {
     @MessageBody() payload: JoinRoomDto
   ) {
     try {
-      // 3. ВИПРАВЛЕННЯ: Обгортаємо в try/catch, бо joinRoom може викинути помилку (пароль, місця)
       const room = this.gameService.joinRoom(client, payload.roomId, payload.username, payload.password);
-      
       client.join(room.id);
       
+      // ВАЖЛИВО:
+      // 1. Сповіщаємо того, хто зайшов, щоб у нього відкрилась гра
       client.emit('joinedRoom', room);
-      // Краще відправляти повний 'roomUpdate' замість окремого 'playerJoined', 
-      // щоб стан на фронті був синхронізований
-      client.to(room.id).emit('roomUpdate', room); 
+      
+      // 2. Сповіщаємо ВСІХ у кімнаті (включно з новим гравцем) про новий стан
+      // Використовуємо 'gameUpdated', бо GameRoom слухає саме його
+      this.server.to(room.id).emit('gameUpdated', room);
+      
     } catch (e) {
       client.emit('error', e.message);
     }
   }
 
-  @SubscribeMessage('playerReady')
-  handlePlayerReady(
+  @SubscribeMessage('makeMove')
+  handleMakeMove(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { roomId: string }
+    @MessageBody() payload: MakeMoveDto
   ) {
     try {
-      const { room, shouldStart } = this.gameService.toggleReady(client.id, data.roomId);
+      const updatedRoom = this.gameService.makeMove(client.id, payload);
       
-      // Тепер this.server існує і працює
-      this.server.to(room.id).emit('roomUpdate', room);
+      // Розсилаємо всім новий стан (і перехід ходу)
+      this.server.to(updatedRoom.id).emit('gameUpdated', updatedRoom);
+      
+    } catch (e) {
+      console.error(e); // Логуємо помилку на сервері
+      client.emit('error', e.message);
+    }
+  }
 
-      if (shouldStart) {
-        this.server.to(room.id).emit('gameStarted', { 
-            boardSize: room.settings.boardSize,
-            players: room.players 
-        });
-      }
+  @SubscribeMessage('toggleReady')
+  handleToggleReady(@ConnectedSocket() client: Socket, @MessageBody() payload: { roomId: string }) {
+    try {
+      const room = this.gameService.toggleReady(client.id, payload.roomId);
+      this.server.to(room.id).emit('gameUpdated', room);
+    } catch (e) { client.emit('error', e.message); }
+  }
+
+  @SubscribeMessage('skipTurn')
+  handleSkipTurn(@ConnectedSocket() client: Socket, @MessageBody() payload: { roomId: string }) {
+    try {
+      const room = this.gameService.skipTurn(client.id, payload.roomId);
+      this.server.to(room.id).emit('gameUpdated', room);
+    } catch (e) { client.emit('error', e.message); }
+  }
+
+  @SubscribeMessage('startGame')
+  handleStartGame(@ConnectedSocket() client: Socket, @MessageBody() payload: { roomId: string }) {
+    try {
+      const room = this.gameService.startGame(client.id, payload.roomId);
+      this.server.to(room.id).emit('gameUpdated', room);
     } catch (e) {
       client.emit('error', e.message);
     }
+  }
+
+  @SubscribeMessage('voteRematch')
+  handleVoteRematch(@ConnectedSocket() client: Socket, @MessageBody() payload: { roomId: string }) {
+    try {
+      const room = this.gameService.voteRematch(client.id, payload.roomId);
+      this.server.to(room.id).emit('gameUpdated', room);
+    } catch (e) { client.emit('error', e.message); }
   }
 }
