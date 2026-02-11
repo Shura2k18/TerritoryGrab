@@ -36,10 +36,12 @@ export interface GameSettings {
 
 export interface Player {
   id: string;
+  socketId: string;
   username: string;
   isReady: boolean;
   color: string;
   wantsRematch?: boolean;
+  isOnline: boolean;
 }
 
 export interface Room {
@@ -107,4 +109,16 @@ export interface RoomSummary {
   currentPlayers: number;
   maxPlayers: number;
   boardSize: number;
+}
+export interface CreateRoomDto {
+  username: string;
+  settings: GameSettings;
+}
+export interface ReconnectDto { // <--- Нове DTO для відновлення
+  roomId: string;
+  playerId: string;
+}
+export interface PlayerActionDto {
+  roomId: string;
+  targetId?: string;
 }

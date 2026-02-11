@@ -39,7 +39,6 @@ export const GameRoom = ({ room: initialRoom, onLeave }: GameRoomProps) => {
         <ActiveGame 
             room={room} 
             grid={grid} 
-            isMyTurn={room.currentTurnIndex === room.players.findIndex(p => p.id === socket.id)} 
             onLeave={onLeave}
         />
         {room.status === 'finished' && (

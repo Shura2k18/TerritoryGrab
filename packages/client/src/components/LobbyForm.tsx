@@ -24,48 +24,40 @@ export const LobbyForm = ({ isConnected, username, setUsername, onError }: Lobby
 
   // Слухаємо список кімнат
   useEffect(() => {
-    socket.on('roomsList', (updatedRooms: RoomSummary[]) => {
-      setRooms(updatedRooms);
-    });
+      const savedNick = localStorage.getItem('territory_username');
+      if (savedNick) setUsername(savedNick);
 
-    // Запитуємо список при відкритті компонента
-    socket.emit('getRooms');
-
-    return () => {
-      socket.off('roomsList');
-    };
+      socket.on('roomsList', setRooms);
+      socket.emit('getRooms');
+      return () => { socket.off('roomsList'); };
   }, []);
 
+  const saveNick = () => {
+      if(username) localStorage.setItem('territory_username', username);
+  };
+
   const handleCreate = () => {
-    if (!username) return onError("Please enter your name");
+    if (!username) return onError("Enter name");
+    saveNick(); // <--- Зберігаємо
     
     const payload: CreateRoomDto = {
       username,
-      settings: {
-        maxPlayers: 4,
-        boardSize: selectedSize,
-        isPrivate,
-        password: isPrivate ? password : undefined
-      }
+      settings: { maxPlayers: 4, boardSize: selectedSize, isPrivate, password: isPrivate ? password : undefined }
     };
     socket.emit('createGame', payload);
   };
 
   const handleJoin = (id?: string) => {
     const targetId = id || roomIdToJoin;
-    if (!username) return onError("Please enter your name");
-    if (!targetId) return onError("Please enter Room ID");
+    if (!username || !targetId) return onError("Enter name & ID");
+    saveNick(); // <--- Зберігаємо
 
-    const payload: JoinRoomDto = {
-      roomId: targetId,
-      username,
-      password: password // Пароль береться з інпуту, якщо він є
-    };
+    const payload: JoinRoomDto = { roomId: targetId, username, password };
     socket.emit('joinGame', payload);
   };
 
   return (
-    <div className="bg-slate-800 p-6 rounded-2xl shadow-2xl w-full max-w-md border border-slate-700 relative overflow-hidden flex flex-col"> {/* Фіксована висота для скролу */}
+    <div className="bg-slate-800 p-6 rounded-2xl shadow-2xl w-full max-w-md border border-slate-700 relative overflow-hidden flex flex-col">
         
         {/* Header Section */}
         <div className="flex-shrink-0">

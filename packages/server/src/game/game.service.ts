@@ -1,14 +1,16 @@
 import { Injectable } from '@nestjs/common';
 import { Socket } from 'socket.io';
 import { v4 as uuidv4 } from 'uuid';
-import { Room, CreateRoomDto, MakeMoveDto, PLAYER_COLORS, RoomSummary } from '@territory/shared';
+import { Room, CreateRoomDto, MakeMoveDto, PLAYER_COLORS, RoomSummary, ReconnectDto } from '@territory/shared';
 
 @Injectable()
 export class GameService {
   private rooms: Map<string, Room> = new Map();
+  private disconnectTimers: Map<string, NodeJS.Timeout> = new Map();
 
   createRoom(client: Socket, dto: CreateRoomDto): Room {
     const roomId = uuidv4().slice(0, 6).toUpperCase();
+    const playerId = uuidv4();
     
     let size = dto.settings.boardSize;
     if (size < 10) size = 10;
@@ -18,7 +20,7 @@ export class GameService {
 
     const newRoom: Room = {
       id: roomId,
-      hostId: client.id,
+      hostId: playerId,
       // settings: { ...dto.settings, boardSize: size },
       settings: {
         maxPlayers: 4,
@@ -27,11 +29,13 @@ export class GameService {
         password: dto.settings.password
       },
       players: [{
-        id: client.id,
+        id: playerId,
+        socketId: client.id,
         username: dto.username,
         isReady: false,
         color: PLAYER_COLORS[0],
-        wantsRematch: false
+        wantsRematch: false,
+        isOnline: true
       }],
       status: 'lobby',
       currentTurnIndex: 0,
@@ -54,194 +58,235 @@ export class GameService {
           throw new Error('Invalid password'); // Невірний пароль
        }
     }
+    const playerId = uuidv4();
     const colorIndex = room.players.length % PLAYER_COLORS.length;
     room.players.push({
-      id: client.id,
+      id: playerId,
+      socketId: client.id,
       username,
       isReady: false,
-      color: PLAYER_COLORS[colorIndex]
+      color: PLAYER_COLORS[colorIndex],
+      wantsRematch: false,
+      isOnline: true
     });
     return room;
   }
 
-  // --- ХІД ГРАВЦЯ ---
-  makeMove(clientId: string, dto: MakeMoveDto): Room {
+  reconnect(client: Socket, dto: ReconnectDto): Room {
     const room = this.rooms.get(dto.roomId);
+    if (!room) throw new Error('Room expired');
+
+    const player = room.players.find(p => p.id === dto.playerId);
+    if (!player) throw new Error('Player not found');
+
+    // Скасовуємо таймер видалення, бо гравець повернувся
+    const timerKey = `${dto.roomId}_${dto.playerId}`;
+    if (this.disconnectTimers.has(timerKey)) {
+        clearTimeout(this.disconnectTimers.get(timerKey));
+        this.disconnectTimers.delete(timerKey);
+        console.log(`[RECONNECT] Player ${player.username} restored`);
+    }
+
+    // Оновлюємо сокет і статус
+    player.socketId = client.id;
+    player.isOnline = true;
     
-    if (!room) throw new Error('Room not found');
-    if (!room.board) throw new Error('Board not initialized');
-    const playerIndex = room.players.findIndex(p => p.id === clientId);
+    return room;
+    
+  }
+
+  handleDisconnect(client: Socket): { roomId: string, room: Room } | null {
+    for (const [roomId, room] of this.rooms) {
+        // Шукаємо гравця за старим сокетом
+        const player = room.players.find(p => p.socketId === client.id);
+        if (player) {
+            player.isOnline = false; // Ставимо офлайн
+            
+            // Запускаємо таймер на 60 сек
+            const timer = setTimeout(() => this.finalizeDisconnect(roomId, player.id), 60000);
+            this.disconnectTimers.set(`${roomId}_${player.id}`, timer);
+            
+            console.log(`[DISCONNECT] ${player.username} (waiting 60s)`);
+            return { roomId, room };
+        }
+    }
+    return null;
+  }
+  
+
+  private finalizeDisconnect(roomId: string, playerId: string) {
+      const room = this.rooms.get(roomId);
+      if (!room) return;
+      
+      console.log(`[TIMEOUT] Removing player ${playerId}`);
+      room.players = room.players.filter(p => p.id !== playerId);
+      this.disconnectTimers.delete(`${roomId}_${playerId}`);
+
+      if (room.players.length === 0) {
+          this.rooms.delete(roomId);
+      } else {
+          // Якщо пішов хост, передаємо права
+          if (room.hostId === playerId) room.hostId = room.players[0].id;
+      }
+  }
+
+  // --- ХІД ГРАВЦЯ ---
+  makeMove(clientSocketId: string, dto: MakeMoveDto): Room {
+    const room = this.rooms.get(dto.roomId);
+    if (!room || !room.board) throw new Error('Error');
+    
+    const player = room.players.find(p => p.socketId === clientSocketId);
+    if (!player) throw new Error('Player not found');
+
+    const playerIndex = room.players.findIndex(p => p.id === player.id);
     if (playerIndex !== room.currentTurnIndex) throw new Error('Not your turn');
 
+    // Логіка запису ходу (без змін)
     for (let r = 0; r < dto.h; r++) {
       for (let c = 0; c < dto.w; c++) {
         if (room.board[dto.y + r] !== undefined) {
-           room.board[dto.y + r][dto.x + c] = clientId;
+           room.board[dto.y + r][dto.x + c] = player.id; // Записуємо UUID
         }
       }
     }
     room.consecutiveSkips = 0;
-
     room.currentTurnIndex = (room.currentTurnIndex + 1) % room.players.length;
     return room;
   }
 
-  toggleReady(clientId: string, roomId: string): Room {
-    const room = this.rooms.get(roomId);
-    if (!room) throw new Error('Room not found');
+  toggleReady(clientSocketId: string, roomId: string): Room {
+      const room = this.rooms.get(roomId);
+      if (!room) throw new Error('Room not found');
+      
+      // ШУКАЄМО ПО SOCKET ID
+      const player = room.players.find(p => p.socketId === clientSocketId);
+      if (!player) throw new Error('Player not found');
 
-    const player = room.players.find(p => p.id === clientId);
-    if (!player) throw new Error('Player not found');
-
-    player.isReady = !player.isReady;
-    
-    // Автостарт прибрано!
-    return room;
+      player.isReady = !player.isReady;
+      return room;
   }
 
-  startGame(clientId: string, roomId: string): Room {
-    const room = this.rooms.get(roomId);
-    if (!room) throw new Error('Room not found');
+  startGame(clientSocketId: string, roomId: string): Room {
+      const room = this.rooms.get(roomId);
+      if (!room) throw new Error('Room not found');
 
-    // Перевірка: чи це Хост?
-    if (room.hostId !== clientId) {
-      throw new Error('Only the host can start the game');
-    }
+      // 1. Знаходимо того, хто натиснув кнопку (за сокетом)
+      const player = room.players.find(p => p.socketId === clientSocketId);
+      if (!player) throw new Error('Player not found');
 
-    // Перевірка: чи достатньо гравців (мін 2)
-    if (room.players.length < 2) {
-      throw new Error('Need at least 2 players to start');
-    }
+      // 2. Перевіряємо, чи це ХОСТ (порівнюємо UUID)
+      if (room.hostId !== player.id) {
+          throw new Error('Only host can start the game');
+      }
 
-    // Перевірка: чи всі готові?
-    const allReady = room.players.every(p => p.isReady);
-    if (!allReady) {
-      throw new Error('All players must be Ready');
-    }
+      // 3. Валідації
+      if (room.players.length < 2) throw new Error('Need at least 2 players');
+      const allReady = room.players.every(p => p.isReady);
+      if (!allReady) throw new Error('Not everyone is ready');
 
-    room.status = 'playing';
-    console.log(`[START] Room ${roomId} started by Host`);
-    return room;
-  }
-
-  skipTurn(clientId: string, roomId: string): Room {
-    const room = this.rooms.get(roomId);
-    if (!room) throw new Error('Error');
-    
-    const idx = room.players.findIndex(p => p.id === clientId);
-    if (idx !== room.currentTurnIndex) throw new Error('Not turn');
-
-    // ЗБІЛЬШУЄМО ЛІЧИЛЬНИК
-    room.consecutiveSkips++;
-    console.log(`[SKIP] Skips: ${room.consecutiveSkips}/${room.players.length * 3}`);
-
-    // ПЕРЕВІРКА НА КІНЕЦЬ ГРИ
-    if (room.consecutiveSkips >= room.players.length * 3) {
-       room.status = 'finished';
-       console.log(`[GAME OVER] Room ${roomId}`);
-    } else {
-       // Передаємо хід далі
-       room.currentTurnIndex = (room.currentTurnIndex + 1) % room.players.length;
-    }
-
-    return room;
-  }
-
-  voteRematch(clientId: string, roomId: string): Room {
-    const room = this.rooms.get(roomId);
-    if (!room) throw new Error('Error');
-
-    const player = room.players.find(p => p.id === clientId);
-    if (player) player.wantsRematch = true;
-
-    // Перевіряємо, чи всі хочуть реванш
-    const allWantRematch = room.players.every(p => p.wantsRematch);
-
-    if (allWantRematch) {
-      // РЕСТАРТ ГРИ
-      const size = room.settings.boardSize;
-      room.board = Array(size).fill(null).map(() => Array(size).fill(null)); // Очищаємо поле
+      // 4. Старт
       room.status = 'playing';
-      room.currentTurnIndex = 0;
-      room.consecutiveSkips = 0;
-      
-      // Скидаємо голоси
-      room.players.forEach(p => {
-        p.wantsRematch = false;
-        p.isReady = true; // Вони вже готові
-      });
-      
-      console.log(`[RESTART] Room ${roomId}`);
-    }
+      console.log(`[START] Room ${roomId} started`);
+      return room;
+  }
 
-    return room;
+  skipTurn(clientSocketId: string, roomId: string): Room {
+      const room = this.rooms.get(roomId);
+      if (!room) throw new Error('Room not found');
+
+      const player = room.players.find(p => p.socketId === clientSocketId);
+      if (!player) throw new Error('Player not found');
+      
+      // Перевіряємо індекс у масиві (він стабільний)
+      const playerIndex = room.players.findIndex(p => p.id === player.id);
+      if (playerIndex !== room.currentTurnIndex) throw new Error('Not your turn');
+      
+      room.consecutiveSkips++;
+      console.log(`[SKIP] Room ${roomId}, Player ${player.username}`);
+
+      if (room.consecutiveSkips >= room.players.length) {
+          room.status = 'finished';
+      } else {
+          room.currentTurnIndex = (room.currentTurnIndex + 1) % room.players.length;
+      }
+      return room;
+  }
+
+  voteRematch(clientSocketId: string, roomId: string): Room {
+      const room = this.rooms.get(roomId);
+      if (!room) throw new Error('Room not found');
+
+      const player = room.players.find(p => p.socketId === clientSocketId);
+      if (!player) throw new Error('Player not found');
+
+      player.wantsRematch = true;
+
+      // Якщо всі проголосували - рестарт
+      if (room.players.every(p => p.wantsRematch)) {
+           const size = room.settings.boardSize;
+           room.board = Array(size).fill(null).map(() => Array(size).fill(null));
+           room.status = 'playing';
+           room.currentTurnIndex = 0;
+           room.consecutiveSkips = 0;
+           room.players.forEach(p => { 
+               p.wantsRematch = false; 
+               // Важливо: лишаємо isReady = true, щоб гра не стопорнулась
+               p.isReady = true; 
+           });
+           console.log(`[RESTART] Room ${roomId}`);
+      }
+      return room;
   }
 
   // --- ЛОГІКА ВИХОДУ ---
-  leaveRoom(clientId: string, roomId: string): Room | null {
+  leaveRoom(clientSocketId: string, roomId: string): Room | null {
     const room = this.rooms.get(roomId);
-    if (!room) return null;
+      if (!room) return null;
+      
+      const player = room.players.find(p => p.socketId === clientSocketId);
+      if (!player) return null;
 
-    // Видаляємо гравця
-    room.players = room.players.filter(p => p.id !== clientId);
-
-    // Якщо нікого не залишилось - видаляємо кімнату
-    if (room.players.length === 0) {
-       this.rooms.delete(roomId);
-       return null; // Кімната знищена
-    }
-
-    // Якщо вийшов ХОСТ -> передаємо права наступному
-    if (room.hostId === clientId) {
-       room.hostId = room.players[0].id; // Новий хост - перший у списку
-       console.log(`[HOST CHANGED] New host for ${roomId} is ${room.players[0].username}`);
-    }
-
-    // Якщо гра йшла - можна її зупинити або продовжити (для MVP краще скинути в лобі)
-    if (room.status === 'playing' && room.players.length < 2) {
-       room.status = 'finished'; // Або 'lobby'
-    }
-
-    return room;
+      // При ручному виході видаляємо відразу
+      room.players = room.players.filter(p => p.id !== player.id);
+      
+      // Очищаємо таймер, якщо він був
+      const timerKey = `${roomId}_${player.id}`;
+      if (this.disconnectTimers.has(timerKey)) {
+        clearTimeout(this.disconnectTimers.get(timerKey));
+        this.disconnectTimers.delete(timerKey);
+      }
+      
+      if (room.players.length === 0) {
+          this.rooms.delete(roomId);
+          return null;
+      }
+      if (room.hostId === player.id) room.hostId = room.players[0].id;
+      return room;
   }
 
   // --- ЛОГІКА КІКУ ---
-  kickPlayer(hostId: string, roomId: string, targetId: string): Room {
+  kickPlayer(hostSocketId: string, roomId: string, targetId: string): Room {
      const room = this.rooms.get(roomId);
      if (!room) throw new Error('Room not found');
-
-     // Перевірка прав (тільки хост може кікати)
-     if (room.hostId !== hostId) {
-        throw new Error('Only host can kick players');
-     }
-
-     // Не можна кікнути самого себе
-     if (hostId === targetId) {
-        throw new Error("Cannot kick yourself");
-     }
-
-     // Видаляємо гравця
-     room.players = room.players.filter(p => p.id !== targetId);
      
-     // Скидаємо готовність інших, щоб випадково не почати гру
-     room.players.forEach(p => p.isReady = false);
+     const host = room.players.find(p => p.socketId === hostSocketId);
+     if (!host || room.hostId !== host.id) throw new Error('Only host can kick');
+     if (host.id === targetId) throw new Error("Cannot kick yourself");
 
+     room.players = room.players.filter(p => p.id !== targetId);
+     room.players.forEach(p => p.isReady = false);
      return room;
   }
 
   getAvailableRooms(): RoomSummary[] {
     return Array.from(this.rooms.values())
-      .filter(room => 
-        !room.settings.isPrivate &&      // Тільки публічні
-        room.status === 'lobby' &&       // Тільки ті, що ще не почалися
-        room.players.length < room.settings.maxPlayers // Де є місця
-      )
-      .map(room => ({
-        id: room.id,
-        hostName: room.players.find(p => p.id === room.hostId)?.username || 'Unknown',
-        currentPlayers: room.players.length,
-        maxPlayers: room.settings.maxPlayers,
-        boardSize: room.settings.boardSize
+      .filter(r => !r.settings.isPrivate && r.status === 'lobby' && r.players.length < r.settings.maxPlayers)
+      .map(r => ({
+        id: r.id,
+        hostName: r.players.find(p => p.id === r.hostId)?.username || 'Unknown',
+        currentPlayers: r.players.length,
+        maxPlayers: r.settings.maxPlayers,
+        boardSize: r.settings.boardSize
       }));
   }
 }

@@ -5,28 +5,38 @@ import type { Room, MakeMoveDto } from '@territory/shared';
 
 interface ActiveGameProps {
   room: Room;
-  grid: (string | null)[][]; // Grid передаємо з батька
-  isMyTurn: boolean;
-  onLeave: () => void; // Додали вихід з гри
+  grid: (string | null)[][]; 
+  onLeave: () => void;
+  // isMyTurn ми прибрали з пропсів, бо краще рахувати його тут
 }
 
-export const ActiveGame = ({ room, grid, isMyTurn, onLeave }: ActiveGameProps) => {
+export const ActiveGame = ({ room, grid, onLeave }: ActiveGameProps) => {
   const [dice, setDice] = useState<[number, number] | null>(null);
   const [isPlacing, setIsPlacing] = useState(false);
   const [isRolling, setIsRolling] = useState(false);
   
-  const myIndex = room.players.findIndex(p => p.id === socket.id);
   const ROWS = room.settings.boardSize;
   const COLS = room.settings.boardSize;
 
+  // --- ВИПРАВЛЕННЯ ЛОГІКИ ІДЕНТИФІКАЦІЇ ---
+  // 1. Знаходимо об'єкт гравця за змінним socket.id
+  const myPlayer = room.players.find(p => p.socketId === socket.id);
+  
+  // 2. Знаходимо індекс гравця за його постійним UUID (id)
+  // Це критично важливо, бо сервер використовує саме цей порядок у масиві
+  const myIndex = room.players.findIndex(p => p.id === myPlayer?.id);
+  
+  // 3. Перевіряємо, чи наш хід
+  const isMyTurn = room.currentTurnIndex === myIndex;
+
   // Скидання кубиків при зміні ходу
   useEffect(() => {
+     // Якщо хід перейшов до нас (але це не початок гри з пустими кубиками)
      if (isMyTurn) {
-         // Якщо став мій хід - скидаємо попередні стани
          setIsPlacing(false);
          setDice(null);
      }
-  }, [room.currentTurnIndex]); // Реагуємо на зміну ходу
+  }, [room.currentTurnIndex, isMyTurn]);
 
   // --- ВАЛІДАЦІЯ ---
   const checkValidity = (x: number, y: number, w: number, h: number, playerId: string): boolean => {
@@ -37,14 +47,20 @@ export const ActiveGame = ({ room, grid, isMyTurn, onLeave }: ActiveGameProps) =
       }
     }
     const hasTerritory = grid.some(row => row.includes(playerId));
+    
+    // Перевірка першого ходу (кути)
     if (!hasTerritory) {
       let startX = 0; let startY = 0;
+      
+      // Використовуємо виправлений myIndex
       if (myIndex === 0) { startX = 0; startY = 0; }
       else if (myIndex === 1) { startX = COLS - 1; startY = ROWS - 1; }
       else if (myIndex === 2) { startX = COLS - 1; startY = 0; }
       else if (myIndex === 3) { startX = 0; startY = ROWS - 1; }
+      
       return (startX >= x && startX < x + w) && (startY >= y && startY < y + h);
     }
+
     let touchesTerritory = false;
     for (let r = 0; r < h; r++) {
       for (let c = 0; c < w; c++) {
@@ -69,10 +85,12 @@ export const ActiveGame = ({ room, grid, isMyTurn, onLeave }: ActiveGameProps) =
   };
 
   const handleCellClick = (x: number, y: number) => {
-    if (!isPlacing || !dice || !socket.id) return;
+    if (!isPlacing || !dice || !socket.id || !myPlayer) return;
     if (!isMyTurn) return; 
+    
     const [w, h] = dice;
-    if (!checkValidity(x, y, w, h, socket.id)) return;
+    // Важливо: передаємо myPlayer.id (UUID), а не socket.id
+    if (!checkValidity(x, y, w, h, myPlayer.id)) return;
     
     const payload: MakeMoveDto = { roomId: room.id, x, y, w, h };
     socket.emit('makeMove', payload);
@@ -80,7 +98,7 @@ export const ActiveGame = ({ room, grid, isMyTurn, onLeave }: ActiveGameProps) =
   };
 
   const rollDice = () => {
-    if (isRolling || !isMyTurn) return;
+    if (isRolling || !isMyTurn || !myPlayer) return;
     setIsRolling(true); setIsPlacing(false);
     
     const interval = setInterval(() => {
@@ -94,8 +112,9 @@ export const ActiveGame = ({ room, grid, isMyTurn, onLeave }: ActiveGameProps) =
       setDice([d1, d2]);
       setIsRolling(false);
 
-      if (socket.id) {
-         const canMove = checkCanPlaceAnywhere(d1, d2, socket.id);
+      if (myPlayer) {
+         // Передаємо UUID
+         const canMove = checkCanPlaceAnywhere(d1, d2, myPlayer.id);
          if (!canMove) {
             setTimeout(() => {
                alert(`No moves for ${d1}x${d2}. Skipping...`);
@@ -135,7 +154,8 @@ export const ActiveGame = ({ room, grid, isMyTurn, onLeave }: ActiveGameProps) =
                 cellSize={ROWS*COLS <= 400 ? 25 : ROWS*COLS <= 1600 ? 15 : 20}
                 activeRect={(isPlacing && dice) ? { w: dice[0], h: dice[1] } : null} 
                 onCellClick={handleCellClick}
-                checkValidity={(x, y) => (dice && socket.id) ? checkValidity(x, y, dice[0], dice[1], socket.id) : false}
+                // Передаємо правильний UUID у валидацію
+                checkValidity={(x, y) => (dice && myPlayer) ? checkValidity(x, y, dice[0], dice[1], myPlayer.id) : false}
             />
           </div>
         </div>
@@ -170,7 +190,7 @@ export const ActiveGame = ({ room, grid, isMyTurn, onLeave }: ActiveGameProps) =
                             <div key={p.id} className={`flex items-center justify-between p-3 rounded-lg border transition-all ${isActive ? "bg-slate-700 border-blue-500/50 shadow-lg scale-[1.02]" : "bg-slate-900/40 border-slate-700/50 opacity-70"}`}>
                                 <div className="flex items-center gap-3 overflow-hidden">
                                     <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: p.color }}></div>
-                                    <span className={`text-sm truncate ${isActive ? "text-white font-bold" : "text-gray-400"}`}>{p.username} {p.id === socket.id && "(You)"}</span>
+                                    <span className={`text-sm truncate ${isActive ? "text-white font-bold" : "text-gray-400"}`}>{p.username} {p.socketId === socket.id && "(You)"}</span>
                                 </div>
                                 {isActive && <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></div>}
                             </div>

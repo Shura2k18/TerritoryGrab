@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { socket } from './socket';
 import { GameRoom } from './components/GameRoom';
 import { LobbyForm } from './components/LobbyForm';
-import type { Room } from '@territory/shared';
+import type { Room, ReconnectDto } from '@territory/shared';
 
 function App() {
   const [isConnected, setIsConnected] = useState(socket.connected);
@@ -13,30 +13,84 @@ function App() {
   useEffect(() => {
     socket.connect();
     
-    // Обробники подій
-    const onConnect = () => { setIsConnected(true); setError(null); };
+    // --- АВТОМАТИЧНИЙ РЕКОНЕКТ ---
+    const savedRoomId = localStorage.getItem('territory_roomId');
+    const savedPlayerId = localStorage.getItem('territory_playerId');
+    
+    // Якщо є збережена сесія - пробуємо відновитись
+    if (savedRoomId && savedPlayerId) {
+        console.log("Attempting reconnect...");
+        // Невелика затримка, щоб сокет встиг з'єднатись
+        setTimeout(() => {
+            if (socket.connected) {
+                socket.emit('reconnect', { roomId: savedRoomId, playerId: savedPlayerId } as ReconnectDto);
+            }
+        }, 500);
+    }
+
+    const onConnect = () => { 
+        setIsConnected(true); 
+        setError(null);
+        // Повторна спроба реконекту при connect, якщо перша не пройшла
+        if (savedRoomId && savedPlayerId) {
+             socket.emit('reconnect', { roomId: savedRoomId, playerId: savedPlayerId });
+        }
+    };
     const onDisconnect = () => setIsConnected(false);
-    const onRoomEnter = (room: Room) => { setCurrentRoom(room); setError(null); };
-    const onLeft = () => setCurrentRoom(null);
-    const onKicked = (msg: string) => { alert(msg); setCurrentRoom(null); };
-    const onError = (msg: string) => { setError(msg); setTimeout(() => setError(null), 3000); };
+    
+    const onRoomEnter = (room: Room) => { 
+        console.log('Entered room:', room);
+        setCurrentRoom(room);
+        setError(null);
+        
+        // ЗБЕРІГАЄМО СЕСІЮ
+        // Шукаємо себе за socket.id, щоб дізнатись свій стійкий UUID
+        const me = room.players.find(p => p.socketId === socket.id);
+        if (me) {
+            localStorage.setItem('territory_roomId', room.id);
+            localStorage.setItem('territory_playerId', me.id);
+            // Оновлюємо нік, якщо він прийшов з сервера (на випадок реконекту)
+            setUsername(me.username);
+            localStorage.setItem('territory_username', me.username);
+        }
+    };
+
+    const onLeft = () => {
+        setCurrentRoom(null);
+        // Чистимо сесію
+        localStorage.removeItem('territory_roomId');
+        localStorage.removeItem('territory_playerId');
+    };
+    
+    const onSessionExpired = () => {
+        setError("Session expired");
+        onLeft();
+    };
+
+    const onKicked = (msg: string) => { alert(msg); onLeft(); };
+    const onError = (msg: string) => { 
+        // Ігноруємо помилки "Room expired" при авто-реконекті, щоб не лякати юзера
+        if (msg === 'Room expired' || msg === 'Player not found') {
+            onLeft(); // Просто скидаємо сесію
+        } else {
+            setError(msg); 
+            setTimeout(() => setError(null), 3000); 
+        }
+    };
 
     socket.on('connect', onConnect);
     socket.on('disconnect', onDisconnect);
     socket.on('roomCreated', onRoomEnter);
-    socket.on('joinedRoom', onRoomEnter);
+    socket.on('joinedRoom', onRoomEnter); // Спрацьовує і при reconnect
     socket.on('leftRoom', onLeft);
+    socket.on('sessionExpired', onSessionExpired);
     socket.on('kicked', onKicked);
     socket.on('error', onError);
 
     return () => {
       socket.off('connect', onConnect);
-      socket.off('disconnect', onDisconnect);
-      socket.off('roomCreated', onRoomEnter);
-      socket.off('joinedRoom', onRoomEnter);
-      socket.off('leftRoom', onLeft);
-      socket.off('kicked', onKicked);
-      socket.on('error', onError);
+      // ... off all ...
+      socket.off('error', onError);
     };
   }, []);
 
@@ -66,7 +120,7 @@ function App() {
          onError={setError} 
       />
       
-      <div className="mt-8 text-slate-600 text-xs">v0.3.0 Release</div>
+      <div className="mt-8 text-slate-600 text-xs">v0.4.0 (Reconnect + Components)</div>
     </div>
   );
 }

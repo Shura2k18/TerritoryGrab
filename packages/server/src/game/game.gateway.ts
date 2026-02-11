@@ -8,7 +8,7 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { GameService } from './game.service';
-import type { CreateRoomDto, JoinRoomDto, MakeMoveDto, KickPlayerDto } from '@territory/shared';
+import type { CreateRoomDto, JoinRoomDto, MakeMoveDto, KickPlayerDto, ReconnectDto } from '@territory/shared';
 
 @WebSocketGateway({ cors: { origin: '*' } }) // Додав CORS на всяк випадок явно
 export class GameGateway {
@@ -157,5 +157,26 @@ export class GameGateway {
   @SubscribeMessage('getRooms')
   handleGetRooms(client: Socket) {
     client.emit('roomsList', this.gameService.getAvailableRooms());
+  }
+
+  @SubscribeMessage('reconnect')
+  handleReconnect(@ConnectedSocket() client: Socket, @MessageBody() payload: ReconnectDto) {
+    try {
+      const room = this.gameService.reconnect(client, payload);
+      client.join(room.id);
+      
+      client.emit('joinedRoom', room); // Відновлюємо стан клієнта
+      this.server.to(room.id).emit('gameUpdated', room); // Сповіщаємо: "Гравець повернувся"
+    } catch (e) {
+      client.emit('sessionExpired');
+    }
+  }
+
+  handleDisconnect(client: Socket) {
+     const result = this.gameService.handleDisconnect(client);
+     if (result && result.room) {
+         // Сповіщаємо, що гравець став Offline
+         this.server.to(result.roomId).emit('gameUpdated', result.room);
+     }
   }
 }
