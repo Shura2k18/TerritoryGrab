@@ -136,7 +136,7 @@ export const LobbyForm = ({ isConnected, username, setUsername, onError }: Lobby
                                 onClick={() => setGameMode('fast')}
                                 className={`flex-1 py-2 text-sm font-bold rounded transition ${gameMode === 'fast' ? 'bg-blue-600 text-white shadow' : 'text-gray-500 hover:text-gray-300'}`}
                             >
-                                Fast Game ⚡
+                                Fast Game
                                 <span className="block text-[10px] font-normal opacity-70">Instant capture</span>
                             </button>
                         </div>
@@ -178,7 +178,7 @@ export const LobbyForm = ({ isConnected, username, setUsername, onError }: Lobby
                                             </div>
                                             {room.mode === 'fast' ? (
                                                 <span className="text-[10px] bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded border border-blue-500/30 flex items-center gap-1 font-bold">
-                                                    ⚡ FAST
+                                                    FAST
                                                 </span>
                                             ) : (
                                                 <span className="text-[10px] bg-slate-500/20 text-slate-400 px-1.5 py-0.5 rounded border border-slate-500/30 font-bold">

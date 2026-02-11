@@ -3,6 +3,7 @@ import { socket } from './socket';
 import { GameRoom } from './components/GameRoom';
 import { LobbyForm } from './components/LobbyForm';
 import type { Room, ReconnectDto } from '@territory/shared';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 function App() {
   const [isConnected, setIsConnected] = useState(socket.connected);
@@ -103,25 +104,25 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white flex flex-col items-center justify-center p-4 font-sans">
-      <h1 className="text-5xl font-bold mb-2 text-blue-500 tracking-widest">TERRITORY</h1>
-      <p className="text-gray-500 mb-8">MULTIPLAYER STRATEGY</p>
-      
-      {error && (
-          <div className="fixed top-0 left-0 w-full bg-red-500 text-white text-center py-2 text-sm font-bold animate-pulse z-50">
-            {error}
-          </div>
-      )}
+    <ErrorBoundary>
+      <div className="min-h-screen bg-gray-900 text-white flex flex-col items-center justify-center p-4 font-sans">
+        <h1 className="text-5xl font-bold mb-2 text-blue-500 tracking-widest">TERRITORY</h1>
+        <p className="text-gray-500 mb-8">MULTIPLAYER STRATEGY</p>
+        
+        {error && (
+            <div className="fixed top-0 left-0 w-full bg-red-500 text-white text-center py-2 text-sm font-bold animate-pulse z-50">
+              {error}
+            </div>
+        )}
 
-      <LobbyForm 
-         isConnected={isConnected} 
-         username={username} 
-         setUsername={setUsername} 
-         onError={setError} 
-      />
-      
-      <div className="mt-8 text-slate-600 text-xs">v0.4.0 (Reconnect + Components)</div>
-    </div>
+        <LobbyForm 
+          isConnected={isConnected} 
+          username={username} 
+          setUsername={setUsername} 
+          onError={setError} 
+        />
+      </div>
+    </ErrorBoundary>
   );
 }
 

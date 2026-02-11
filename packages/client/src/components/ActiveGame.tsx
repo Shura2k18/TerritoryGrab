@@ -11,6 +11,17 @@ interface ActiveGameProps {
 }
 
 export const ActiveGame = ({ room, grid, onLeave }: ActiveGameProps) => {
+  if (!grid || !grid.length || !room || !room.players) {
+      return (
+          <div className="h-screen flex items-center justify-center bg-gray-900 text-white">
+              <div className="flex flex-col items-center gap-4">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+                  <div className="animate-pulse text-slate-400">Loading game state...</div>
+              </div>
+          </div>
+      );
+  }
+  
   const [dice, setDice] = useState<[number, number] | null>(null);
   const [isPlacing, setIsPlacing] = useState(false);
   const [isRolling, setIsRolling] = useState(false);
@@ -19,9 +30,10 @@ export const ActiveGame = ({ room, grid, onLeave }: ActiveGameProps) => {
   const COLS = room.settings.boardSize;
 
   const myPlayer = room.players.find(p => p.socketId === socket.id);
-  const myIndex = room.players.findIndex(p => p.id === myPlayer?.id);
-  const isMyTurn = room.currentTurnIndex === myIndex;
+  const myIndex = myPlayer ? room.players.findIndex(p => p.id === myPlayer.id) : -1;
+  const isMyTurn = myIndex !== -1 && room.currentTurnIndex === myIndex;
 
+  
   useEffect(() => {
      if (isMyTurn) {
          setIsPlacing(false);
@@ -200,7 +212,7 @@ export const ActiveGame = ({ room, grid, onLeave }: ActiveGameProps) => {
                     <span className="font-mono text-xs text-slate-500">ID: {room.id}</span>
                 </div>
                 
-                <div className="space-y-2 overflow-y-auto custom-scrollbar pr-1">
+                <div className="space-y-2 pr-1">
                     {room.players.map((p, index) => {
                         const isActive = index === room.currentTurnIndex;
                         return (

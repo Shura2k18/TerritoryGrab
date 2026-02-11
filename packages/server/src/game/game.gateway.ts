@@ -10,7 +10,10 @@ import { Server, Socket } from 'socket.io';
 import { GameService } from './game.service';
 import type { CreateRoomDto, JoinRoomDto, MakeMoveDto, KickPlayerDto, ReconnectDto, SendMessageDto } from '@territory/shared';
 
-@WebSocketGateway({ cors: { origin: '*' } }) // Додав CORS на всяк випадок явно
+@WebSocketGateway({ cors: {
+    origin: process.env.CLIENT_URL || 'http://localhost:3000',
+    credentials: true
+  } })
 export class GameGateway {
   @WebSocketServer()
   server: Server;

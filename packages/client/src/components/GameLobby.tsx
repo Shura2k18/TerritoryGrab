@@ -43,9 +43,9 @@ export const GameLobby = ({ room, onLeave }: GameLobbyProps) => {
             <p className="text-gray-500 font-mono bg-slate-800 px-3 py-1 rounded border border-slate-700">
                 ID: <span className="text-white select-all">{room.id}</span>
             </p>
-            {room.settings.isPrivate && <span className="text-xs bg-yellow-900/30 text-yellow-500 px-2 py-1 rounded border border-yellow-700 font-bold">🔒 PRIVATE</span>}
+            {room.settings.isPrivate && <span className="text-xs bg-yellow-900/30 text-yellow-500 px-2 py-1 rounded border border-yellow-700 font-bold">PRIVATE</span>}
             {room.settings.mode === 'fast' ? (
-                <span className="text-xs bg-blue-900/50 text-blue-400 px-2 py-1 rounded border border-blue-700 font-bold flex items-center gap-1">⚡ FAST MODE</span>
+                <span className="text-xs bg-blue-900/50 text-blue-400 px-2 py-1 rounded border border-blue-700 font-bold flex items-center gap-1">FAST MODE</span>
             ) : (
                 <span className="text-xs bg-slate-700 text-gray-400 px-2 py-1 rounded border border-slate-600">CLASSIC</span>
             )}
@@ -100,7 +100,7 @@ export const GameLobby = ({ room, onLeave }: GameLobbyProps) => {
                 </button>
                 {isHost && (
                     <button onClick={handleStartGame} disabled={!canStart} className={`w-full py-4 rounded-xl font-bold text-xl transition flex items-center justify-center gap-2 ${canStart ? "bg-green-600 hover:bg-green-500 text-white shadow-lg shadow-green-900/50 cursor-pointer animate-pulse" : "bg-slate-800 text-slate-600 border border-slate-700 cursor-not-allowed"}`}>
-                      START GAME 🚀
+                      START GAME
                     </button>
                 )}
                 {isHost && !canStart && <p className="text-center text-xs text-red-400/70">{room.players.length < 2 ? "Need min 2 players" : "Wait for everyone to be READY"}</p>}
