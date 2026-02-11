@@ -41,7 +41,12 @@ export interface Room {
   currentTurnIndex: number;
   board?: (string | null)[][];
   consecutiveSkips: number;
-  chatHistory: ChatMessage[]
+  chatHistory: ChatMessage[];
+  winnerId?: string;
+  gameResult?: {
+    players: PlayerResult[]; // Список всіх хто грав
+    winnerId: string | null; // Хто виграв (або null якщо нічия)
+  };
 }
 export interface ToggleReadyDto {
   roomId: string;
@@ -124,4 +129,10 @@ export interface ChatMessage {
 export interface SendMessageDto {
   roomId: string;
   text: string;
+}
+export interface PlayerResult {
+  id: string;
+  username: string;
+  color: string;
+  score: number;
 }

@@ -1,3 +1,4 @@
+import { WsException } from '@nestjs/websockets';
 import { Injectable } from '@nestjs/common';
 import { Socket } from 'socket.io';
 import { v4 as uuidv4 } from 'uuid';
@@ -153,6 +154,41 @@ export class GameService {
       }
   }
 
+  private finishGame(room: Room): Room {
+    room.status = 'finished';
+    if (!room.board) return room;
+
+    // 1. Рахуємо бали
+    const scores: Record<string, number> = {};
+    room.players.forEach(p => scores[p.id] = 0);
+    room.board.forEach(row => row.forEach(cell => {
+        if (cell) scores[cell] = (scores[cell] || 0) + 1;
+    }));
+
+    // 2. Визначаємо переможця
+    let maxScore = -1;
+    let winnerId: string | null = null;
+    Object.entries(scores).forEach(([pid, score]) => {
+        if (score > maxScore) { maxScore = score; winnerId = pid; }
+        else if (score === maxScore) { winnerId = 'draw'; }
+    });
+    
+    room.winnerId = winnerId || undefined;
+
+    // 3. ЗАПИСУЄМО РЕЗУЛЬТАТ (Щоб він зберігся після виходу гравців)
+    room.gameResult = {
+        winnerId: winnerId,
+        players: room.players.map(p => ({
+            id: p.id,
+            username: p.username,
+            color: p.color,
+            score: scores[p.id] || 0
+        }))
+    };
+
+    return room;
+  }
+
   // --- ХІД ГРАВЦЯ ---
   makeMove(clientSocketId: string, dto: MakeMoveDto): Room {
     const room = this.rooms.get(dto.roomId);
@@ -179,6 +215,12 @@ export class GameService {
         }
     }
     room.consecutiveSkips = 0;
+    
+    const isBoardFull = room.board.every(row => row.every(cell => cell !== null));
+    
+    if (isBoardFull) {
+        return this.finishGame(room);
+    }
     room.currentTurnIndex = (room.currentTurnIndex + 1) % room.players.length;
     return room;
   }
@@ -282,27 +324,55 @@ export class GameService {
   }
 
   startGame(clientSocketId: string, roomId: string): Room {
-      const room = this.rooms.get(roomId);
-      if (!room) throw new Error('Room not found');
+    const room = this.rooms.get(roomId);
 
-      // 1. Знаходимо того, хто натиснув кнопку (за сокетом)
-      const player = room.players.find(p => p.socketId === clientSocketId);
-      if (!player) throw new Error('Player not found');
+    if (!room) {
+      throw new WsException('Room not found');
+    }
 
-      // 2. Перевіряємо, чи це ХОСТ (порівнюємо UUID)
-      if (room.hostId !== player.id) {
-          throw new Error('Only host can start the game');
-      }
+    // 1. Знаходимо гравця, який натиснув кнопку
+    const player = room.players.find(p => p.socketId === clientSocketId);
+    if (!player) {
+        throw new WsException('Player not found');
+    }
 
-      // 3. Валідації
-      if (room.players.length < 2) throw new Error('Need at least 2 players');
-      const allReady = room.players.every(p => p.isReady);
-      if (!allReady) throw new Error('Not everyone is ready');
+    // 2. Перевіряємо права (чи це ХОСТ)
+    // Порівнюємо ID гравця з ID хоста кімнати
+    if (room.hostId !== player.id) {
+      throw new WsException('Only host can start the game');
+    }
 
-      // 4. Старт
-      room.status = 'playing';
-      console.log(`[START] Room ${roomId} started`);
-      return room;
+    // 3. Перевірка кількості гравців
+    if (room.players.length < 2) {
+        throw new WsException('Need at least 2 players to start!');
+    }
+
+    // 4. Перевірка готовності (опціонально, якщо ти використовуєш кнопку Ready)
+    /* const allReady = room.players.every(p => p.isReady);
+    if (!allReady) {
+        throw new WsException('Not everyone is ready');
+    }
+    */
+
+    // 5. Старт гри
+    // Генеруємо чисту дошку
+    const size = room.settings.boardSize;
+    room.board = Array(size).fill(null).map(() => Array(size).fill(null));
+    
+    room.status = 'playing';
+    room.currentTurnIndex = 0;
+    room.consecutiveSkips = 0;
+    
+    // Очищаємо прапорці готовності та рематчу
+    room.players.forEach(p => {
+        p.isReady = false;
+        p.wantsRematch = false;
+    });
+
+    this.addMessage(room, 'system', 'System', 'Game Started!', '#fbbf24', true);
+    
+    console.log(`[START] Room ${roomId} started by ${player.username}`);
+    return room;
   }
 
   skipTurn(clientSocketId: string, roomId: string): Room {
@@ -317,14 +387,14 @@ export class GameService {
       if (playerIndex !== room.currentTurnIndex) throw new Error('Not your turn');
       
       room.consecutiveSkips++;
-      console.log(`[SKIP] Room ${roomId}, Player ${player.username}, Skips: ${room.consecutiveSkips}/${room.players.length * 3}`);
+      const limit = room.players.length * 3;
 
-      if (room.consecutiveSkips >= room.players.length * 3) {
-          room.status = 'finished';
-      } else {
-          room.currentTurnIndex = (room.currentTurnIndex + 1) % room.players.length;
-      }
-      return room;
+    if (room.consecutiveSkips >= limit) {
+        return this.finishGame(room); // <--- Використовуємо спільний метод
+    }
+
+    room.currentTurnIndex = (room.currentTurnIndex + 1) % room.players.length;
+    return room;
   }
 
   voteRematch(clientSocketId: string, roomId: string): Room {
@@ -334,20 +404,38 @@ export class GameService {
       const player = room.players.find(p => p.socketId === clientSocketId);
       if (!player) throw new Error('Player not found');
 
+      // --- НОВА ПЕРЕВІРКА ---
+      // Не даємо голосувати, якщо в кімнаті залишився тільки один гравець
+      if (room.players.length < 2) {
+          // Можна кинути помилку, щоб клієнт показав alert
+          throw new WsException('Need at least 2 players for a rematch!'); 
+          // Або просто ігнорувати: return room;
+      }
+      // ----------------------
+
       player.wantsRematch = true;
 
       // Якщо всі проголосували - рестарт
       if (room.players.every(p => p.wantsRematch)) {
+           // Ще одна перевірка на всяк випадок
+           if (room.players.length < 2) return room; 
+
            const size = room.settings.boardSize;
            room.board = Array(size).fill(null).map(() => Array(size).fill(null));
+           
+           // ... (скидання гри) ...
            room.status = 'playing';
            room.currentTurnIndex = 0;
            room.consecutiveSkips = 0;
+           room.winnerId = undefined; 
+           room.gameResult = undefined; // Очищаємо результати попередньої гри
+
            room.players.forEach(p => { 
                p.wantsRematch = false; 
-               // Важливо: лишаємо isReady = true, щоб гра не стопорнулась
                p.isReady = true; 
            });
+           
+           this.addMessage(room, 'system', 'System', 'Game Restarted!', '#fbbf24', true);
            console.log(`[RESTART] Room ${roomId}`);
       }
       return room;
@@ -356,30 +444,51 @@ export class GameService {
   // --- ЛОГІКА ВИХОДУ ---
   leaveRoom(clientSocketId: string, roomId: string): Room | null {
     const room = this.rooms.get(roomId);
-      if (!room) return null;
+    if (!room) return null;
       
-      const player = room.players.find(p => p.socketId === clientSocketId);
-      if (!player) return null;
+    const player = room.players.find(p => p.socketId === clientSocketId);
+    if (!player) return null;
 
-      // При ручному виході видаляємо відразу
-      room.players = room.players.filter(p => p.id !== player.id);
-      
-      // Очищаємо таймер, якщо він був
-      const timerKey = `${roomId}_${player.id}`;
-      if (this.disconnectTimers.has(timerKey)) {
-        clearTimeout(this.disconnectTimers.get(timerKey));
-        this.disconnectTimers.delete(timerKey);
-      }
-      
-      if (room.players.length === 0) {
-          this.rooms.delete(roomId);
-          return null;
-      }
-      if (room.hostId === player.id) room.hostId = room.players[0].id;
-      if (player) {
+    // --- ВИПРАВЛЕННЯ ТУТ ---
+    
+    // 1. СПОЧАТКУ перевіряємо, чи треба завершити гру (поки гравець ще в списку!)
+    // Якщо гра йде, ми повинні зарахувати поразку і зберегти результати ВСІХ гравців
+    if (room.status === 'playing') {
+        this.addMessage(room, 'system', 'System', `${player.username} left. Game Over!`, '#ef4444', true);
+        
+        // Викликаємо фініш. Він збереже ВСІХ поточних гравців (включно з тим, хто виходить) у gameResult
+        this.finishGame(room);
+        
+        // Оскільки гра закінчена, статус вже 'finished'
+    }
+
+    // 2. ТЕПЕР видаляємо гравця з активного списку
+    room.players = room.players.filter(p => p.id !== player.id);
+    
+    // 3. Чистимо таймери
+    const timerKey = `${roomId}_${player.id}`;
+    if (this.disconnectTimers.has(timerKey)) {
+      clearTimeout(this.disconnectTimers.get(timerKey));
+      this.disconnectTimers.delete(timerKey);
+    }
+    
+    // 4. Якщо кімната пуста - видаляємо
+    if (room.players.length === 0) {
+        this.rooms.delete(roomId);
+        return null;
+    }
+
+    // 5. Передача хоста (якщо треба)
+    if (room.hostId === player.id) {
+        room.hostId = room.players[0].id;
+    }
+
+    // Повідомлення про вихід (якщо це було лоббі або вже після гри)
+    if (room.status !== 'finished') { 
          this.addMessage(room, 'system', 'System', `${player.username} left the game`, '#ef4444', true);
-      }
-      return room;
+    }
+
+    return room;
   }
 
   // --- ЛОГІКА КІКУ ---

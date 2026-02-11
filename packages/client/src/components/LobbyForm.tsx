@@ -62,6 +62,7 @@ export const LobbyForm = ({ isConnected, username, setUsername, onError }: Lobby
     const payload: JoinRoomDto = { roomId: targetId, username, password };
     socket.emit('joinGame', payload);
   };
+  
 
   return (
     <div className="bg-slate-800 p-6 rounded-2xl shadow-2xl w-full max-w-md border border-slate-700 relative overflow-hidden flex flex-col">
