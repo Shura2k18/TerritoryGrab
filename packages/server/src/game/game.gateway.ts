@@ -8,7 +8,7 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { GameService } from './game.service';
-import type { CreateRoomDto, JoinRoomDto, MakeMoveDto, KickPlayerDto, ReconnectDto } from '@territory/shared';
+import type { CreateRoomDto, JoinRoomDto, MakeMoveDto, KickPlayerDto, ReconnectDto, SendMessageDto } from '@territory/shared';
 
 @WebSocketGateway({ cors: { origin: '*' } }) // Додав CORS на всяк випадок явно
 export class GameGateway {
@@ -178,5 +178,17 @@ export class GameGateway {
          // Сповіщаємо, що гравець став Offline
          this.server.to(result.roomId).emit('gameUpdated', result.room);
      }
+  }
+
+  @SubscribeMessage('sendMessage')
+  handleSendMessage(@ConnectedSocket() client: Socket, @MessageBody() payload: SendMessageDto) {
+    try {
+      const room = this.gameService.sendMessage(client.id, payload);
+      // Можна слати 'chatUpdated' з масивом повідомлень, або просто 'gameUpdated' з усією кімнатою.
+      // Для простоти поки що оновлюємо всю кімнату (це надійно синхронізує всіх).
+      this.server.to(room.id).emit('gameUpdated', room);
+    } catch (e) {
+      client.emit('error', e.message);
+    }
   }
 }

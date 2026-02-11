@@ -1,19 +1,4 @@
 export const GAME_NAME = "Territory Grab";
-// export interface Player {
-//     id: string;
-//     color: string;
-// }
-
-// export interface ClientToServerEvents {
-//   joinGame: (roomId: string) => void;
-//   rollDice: () => void;
-//   // пізніше додамо moveFigure і т.д.
-// }
-
-// export interface ServerToClientEvents {
-//   playerJoined: (playerId: string) => void;
-//   diceRolled: (dice: [number, number]) => void;
-// }
 
 export const PLAYER_COLORS = [
   '#3b82f6', // P1: Blue
@@ -56,6 +41,7 @@ export interface Room {
   currentTurnIndex: number;
   board?: (string | null)[][];
   consecutiveSkips: number;
+  chatHistory: ChatMessage[]
 }
 export interface ToggleReadyDto {
   roomId: string;
@@ -125,4 +111,17 @@ export interface ReconnectDto { // <--- Нове DTO для відновленн
 export interface PlayerActionDto {
   roomId: string;
   targetId?: string;
+}
+export interface ChatMessage {
+  id: string;
+  senderId: string;   // UUID або 'system'
+  senderName: string;
+  text: string;
+  color: string;      // Колір гравця або сірий для системних
+  timestamp: number;
+  isSystem?: boolean; // Чи це повідомлення від сервера (хтось зайшов/вийшов)
+}
+export interface SendMessageDto {
+  roomId: string;
+  text: string;
 }

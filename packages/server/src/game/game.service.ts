@@ -1,12 +1,32 @@
 import { Injectable } from '@nestjs/common';
 import { Socket } from 'socket.io';
 import { v4 as uuidv4 } from 'uuid';
-import { Room, CreateRoomDto, MakeMoveDto, PLAYER_COLORS, RoomSummary, ReconnectDto } from '@territory/shared';
+import { Room, CreateRoomDto, MakeMoveDto, PLAYER_COLORS, RoomSummary, ReconnectDto, ChatMessage, SendMessageDto } from '@territory/shared';
 
 @Injectable()
 export class GameService {
   private rooms: Map<string, Room> = new Map();
   private disconnectTimers: Map<string, NodeJS.Timeout> = new Map();
+
+  private addMessage(room: Room, senderId: string, senderName: string, text: string, color: string, isSystem = false) {
+      const msg: ChatMessage = {
+          id: uuidv4(),
+          senderId,
+          senderName,
+          text,
+          color,
+          timestamp: Date.now(),
+          isSystem
+      };
+      
+      if (!room.chatHistory) room.chatHistory = [];
+      room.chatHistory.push(msg);
+      
+      // Обмежуємо історію (наприклад, останні 50 повідомлень)
+      if (room.chatHistory.length > 50) room.chatHistory.shift();
+      
+      return msg; // Повертаємо саме повідомлення, щоб розіслати тільки його (оптимізація), або можна слати всю кімнату
+  }
 
   createRoom(client: Socket, dto: CreateRoomDto): Room {
     const roomId = uuidv4().slice(0, 6).toUpperCase();
@@ -27,7 +47,7 @@ export class GameService {
         boardSize: size,
         isPrivate: dto.settings.isPrivate || false,
         password: dto.settings.password,
-        mode: dto.settings.mode || 'classic'
+        mode: dto.settings.mode || 'classic',
       },
       players: [{
         id: playerId,
@@ -41,9 +61,10 @@ export class GameService {
       status: 'lobby',
       currentTurnIndex: 0,
       board: initialBoard,
-      consecutiveSkips: 0 // Починаємо з 0
+      consecutiveSkips: 0,
+      chatHistory: []
     };
-
+    this.addMessage(newRoom, 'system', 'System', `Room created by ${dto.username}`, '#9ca3af', true);
     this.rooms.set(roomId, newRoom);
     return newRoom;
   }
@@ -70,6 +91,7 @@ export class GameService {
       wantsRematch: false,
       isOnline: true
     });
+    this.addMessage(room, 'system', 'System', `${username} joined the game`, '#22c55e', true);
     return room;
   }
 
@@ -295,9 +317,9 @@ export class GameService {
       if (playerIndex !== room.currentTurnIndex) throw new Error('Not your turn');
       
       room.consecutiveSkips++;
-      console.log(`[SKIP] Room ${roomId}, Player ${player.username}, Skips: ${room.consecutiveSkips}/${room.players.length}`);
+      console.log(`[SKIP] Room ${roomId}, Player ${player.username}, Skips: ${room.consecutiveSkips}/${room.players.length * 3}`);
 
-      if (room.consecutiveSkips >= room.players.length) {
+      if (room.consecutiveSkips >= room.players.length * 3) {
           room.status = 'finished';
       } else {
           room.currentTurnIndex = (room.currentTurnIndex + 1) % room.players.length;
@@ -354,6 +376,9 @@ export class GameService {
           return null;
       }
       if (room.hostId === player.id) room.hostId = room.players[0].id;
+      if (player) {
+         this.addMessage(room, 'system', 'System', `${player.username} left the game`, '#ef4444', true);
+      }
       return room;
   }
 
@@ -382,5 +407,15 @@ export class GameService {
         boardSize: r.settings.boardSize,
         mode: r.settings.mode
       }));
+  }
+  sendMessage(clientSocketId: string, dto: SendMessageDto): Room {
+      const room = this.rooms.get(dto.roomId);
+      if (!room) throw new Error('Room not found');
+
+      const player = room.players.find(p => p.socketId === clientSocketId);
+      if (!player) throw new Error('Player not found');
+
+      this.addMessage(room, player.id, player.username, dto.text, player.color);
+      return room;
   }
 }
