@@ -26,7 +26,8 @@ export class GameService {
         maxPlayers: 4,
         boardSize: size,
         isPrivate: dto.settings.isPrivate || false,
-        password: dto.settings.password
+        password: dto.settings.password,
+        mode: dto.settings.mode || 'classic'
       },
       players: [{
         id: playerId,
@@ -141,17 +142,109 @@ export class GameService {
     const playerIndex = room.players.findIndex(p => p.id === player.id);
     if (playerIndex !== room.currentTurnIndex) throw new Error('Not your turn');
 
-    // Логіка запису ходу (без змін)
     for (let r = 0; r < dto.h; r++) {
       for (let c = 0; c < dto.w; c++) {
         if (room.board[dto.y + r] !== undefined) {
-           room.board[dto.y + r][dto.x + c] = player.id; // Записуємо UUID
+           room.board[dto.y + r][dto.x + c] = player.id;
         }
       }
+    }
+
+    if (room.settings.mode === 'fast') {
+        const capturedCount = this.processTerritoryCapture(room);
+        if (capturedCount > 0) {
+            console.log(`[CAPTURE] Player ${player.username} captured ${capturedCount} cells!`);
+        }
     }
     room.consecutiveSkips = 0;
     room.currentTurnIndex = (room.currentTurnIndex + 1) % room.players.length;
     return room;
+  }
+
+  // --- АЛГОРИТМ ЗАХОПЛЕННЯ ТЕРИТОРІЇ (FLOOD FILL) ---
+  private processTerritoryCapture(room: Room): number {
+      if (!room.board) return 0;
+      const board = room.board;
+      const size = room.settings.boardSize;
+      
+      const visited = Array(size).fill(false).map(() => Array(size).fill(false));
+      let totalCaptured = 0;
+
+      const getNeighbors = (r: number, c: number): [number, number][] => {
+          const n: [number, number][] = [];
+          if (r > 0) n.push([r - 1, c]);
+          if (r < size - 1) n.push([r + 1, c]);
+          if (c > 0) n.push([r, c - 1]);
+          if (c < size - 1) n.push([r, c + 1]);
+          return n;
+      };
+
+      for (let y = 0; y < size; y++) {
+          for (let x = 0; x < size; x++) {
+              if (board[y][x] === null && !visited[y][x]) {
+                  
+                  const queue: [number, number][] = [[y, x]];
+                  visited[y][x] = true;
+                  
+                  const regionCells: [number, number][] = [[y, x]]; 
+                  const touchingPlayers = new Set<string>();
+                  
+                  // Відстежуємо, яких стін торкається цей регіон
+                  const borders = { top: false, bottom: false, left: false, right: false };
+
+                  const checkBorders = (r: number, c: number) => {
+                      if (r === 0) borders.top = true;
+                      if (r === size - 1) borders.bottom = true;
+                      if (c === 0) borders.left = true;
+                      if (c === size - 1) borders.right = true;
+                  };
+                  
+                  // Перевіряємо стартову точку
+                  checkBorders(y, x);
+
+                  let head = 0;
+                  while(head < queue.length){
+                      const [curY, curX] = queue[head++];
+                      
+                      const neighbors = getNeighbors(curY, curX);
+                      for (const [nY, nX] of neighbors) {
+                          const cellVal = board[nY][nX];
+                          
+                          if (cellVal === null) {
+                              if (!visited[nY][nX]) {
+                                  visited[nY][nX] = true;
+                                  queue.push([nY, nX]);
+                                  regionCells.push([nY, nX]);
+                                  checkBorders(nY, nX); // Перевіряємо межі для кожної клітинки
+                              }
+                          } else {
+                              touchingPlayers.add(cellVal);
+                          }
+                      }
+                  }
+
+                  // ЛОГІКА ЗАХОПЛЕННЯ:
+                  // 1. Регіон має бути оточений лише ОДНИМ гравцем (плюс стіни).
+                  // 2. Регіон НЕ має простягатись на всю карту (від верху до низу АБО зліва направо).
+                  //    Це захист від зафарбовування всього поля на першому ході.
+                  
+                  const spansVertical = borders.top && borders.bottom;
+                  const spansHorizontal = borders.left && borders.right;
+                  const isOcean = spansVertical || spansHorizontal;
+
+                  if (touchingPlayers.size === 1 && !isOcean) {
+                      const ownerId = touchingPlayers.values().next().value;
+                      if (ownerId) {
+                          for (const [r, c] of regionCells) {
+                              board[r][c] = ownerId;
+                              totalCaptured++;
+                          }
+                      }
+                  }
+              }
+          }
+      }
+      return totalCaptured;
   }
 
   toggleReady(clientSocketId: string, roomId: string): Room {
@@ -202,7 +295,7 @@ export class GameService {
       if (playerIndex !== room.currentTurnIndex) throw new Error('Not your turn');
       
       room.consecutiveSkips++;
-      console.log(`[SKIP] Room ${roomId}, Player ${player.username}`);
+      console.log(`[SKIP] Room ${roomId}, Player ${player.username}, Skips: ${room.consecutiveSkips}/${room.players.length}`);
 
       if (room.consecutiveSkips >= room.players.length) {
           room.status = 'finished';
@@ -286,7 +379,8 @@ export class GameService {
         hostName: r.players.find(p => p.id === r.hostId)?.username || 'Unknown',
         currentPlayers: r.players.length,
         maxPlayers: r.settings.maxPlayers,
-        boardSize: r.settings.boardSize
+        boardSize: r.settings.boardSize,
+        mode: r.settings.mode
       }));
   }
 }

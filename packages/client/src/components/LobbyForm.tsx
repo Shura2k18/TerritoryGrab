@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { socket } from '../socket';
-import type { CreateRoomDto, JoinRoomDto, RoomSummary } from '@territory/shared';
+import type { CreateRoomDto, JoinRoomDto, RoomSummary, GameMode } from '@territory/shared';
 
 interface LobbyFormProps {
   isConnected: boolean;
@@ -18,6 +18,7 @@ export const LobbyForm = ({ isConnected, username, setUsername, onError }: Lobby
   const [isCustomSize, setIsCustomSize] = useState(false);
   const [isPrivate, setIsPrivate] = useState(false);
   const [password, setPassword] = useState('');
+  const [gameMode, setGameMode] = useState<GameMode>('classic');
 
   // List of rooms
   const [rooms, setRooms] = useState<RoomSummary[]>([]);
@@ -42,7 +43,13 @@ export const LobbyForm = ({ isConnected, username, setUsername, onError }: Lobby
     
     const payload: CreateRoomDto = {
       username,
-      settings: { maxPlayers: 4, boardSize: selectedSize, isPrivate, password: isPrivate ? password : undefined }
+      settings: {
+        maxPlayers: 4,
+        boardSize: selectedSize,
+        isPrivate,
+        password: isPrivate ? password : undefined,
+        mode: gameMode
+      }
     };
     socket.emit('createGame', payload);
   };
@@ -115,8 +122,27 @@ export const LobbyForm = ({ isConnected, username, setUsername, onError }: Lobby
                         <input type="text" placeholder="Set password..." className="w-full p-2 bg-slate-800 border border-slate-600 rounded text-white text-sm mt-1" value={password} onChange={e => setPassword(e.target.value)} />
                         )}
                     </div>
-
+                    <div className="mb-4">
+                        <label className="block text-xs font-bold mb-2 text-gray-400 uppercase">Game Mode</label>
+                        <div className="flex bg-slate-900 p-1 rounded-lg">
+                            <button 
+                                onClick={() => setGameMode('classic')}
+                                className={`flex-1 py-2 text-sm font-bold rounded transition ${gameMode === 'classic' ? 'bg-slate-700 text-white shadow' : 'text-gray-500 hover:text-gray-300'}`}
+                            >
+                                Classic
+                                <span className="block text-[10px] font-normal opacity-70">Score at the end</span>
+                            </button>
+                            <button 
+                                onClick={() => setGameMode('fast')}
+                                className={`flex-1 py-2 text-sm font-bold rounded transition ${gameMode === 'fast' ? 'bg-blue-600 text-white shadow' : 'text-gray-500 hover:text-gray-300'}`}
+                            >
+                                Fast Game ⚡
+                                <span className="block text-[10px] font-normal opacity-70">Instant capture</span>
+                            </button>
+                        </div>
+                    </div>
                     <button onClick={handleCreate} disabled={!isConnected} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl transition shadow-lg active:scale-95 disabled:opacity-50">Create New Game</button>
+                    
                 </div>
             ) : (
                 <div className="animate-fade-in pb-2">
@@ -150,6 +176,15 @@ export const LobbyForm = ({ isConnected, username, setUsername, onError }: Lobby
                                                 <span className="font-bold text-white">{room.hostName}'s Game</span>
                                                 <span className="text-[10px] bg-slate-800 px-1.5 py-0.5 rounded text-gray-400 font-mono">#{room.id}</span>
                                             </div>
+                                            {room.mode === 'fast' ? (
+                                                <span className="text-[10px] bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded border border-blue-500/30 flex items-center gap-1 font-bold">
+                                                    ⚡ FAST
+                                                </span>
+                                            ) : (
+                                                <span className="text-[10px] bg-slate-500/20 text-slate-400 px-1.5 py-0.5 rounded border border-slate-500/30 font-bold">
+                                                    CLASSIC
+                                                </span>
+                                            )}
                                             <div className="text-xs text-gray-400 mt-1 flex gap-3">
                                                 <span>Size: {room.boardSize}x{room.boardSize}</span>
                                                 <span>Players: {room.currentPlayers}/{room.maxPlayers}</span>

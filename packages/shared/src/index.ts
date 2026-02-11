@@ -27,11 +27,14 @@ export type PlayerColor = typeof PLAYER_COLORS[number];
 
 export type GameStatus = 'lobby' | 'playing' | 'finished';
 
+export type GameMode = 'classic' | 'fast';
+
 export interface GameSettings {
   maxPlayers: number;    // 2, 3, 4
   boardSize: number;     // 10, 15, 20
   isPrivate: boolean;
-  password?: string;     // Опціонально, якщо isPrivate = true
+  password?: string;
+  mode: GameMode;
 }
 
 export interface Player {
@@ -109,6 +112,7 @@ export interface RoomSummary {
   currentPlayers: number;
   maxPlayers: number;
   boardSize: number;
+  mode: GameMode;
 }
 export interface CreateRoomDto {
   username: string;

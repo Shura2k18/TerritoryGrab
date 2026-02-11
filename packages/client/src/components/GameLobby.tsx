@@ -50,6 +50,15 @@ export const GameLobby = ({ room, onLeave }: GameLobbyProps) => {
                     🔒 PRIVATE
                 </span>
             )}
+            {room.settings.mode === 'fast' ? (
+                <span className="text-xs bg-blue-900/50 text-blue-400 px-2 py-1 rounded border border-blue-700 font-bold flex items-center gap-1">
+                  ⚡ FAST MODE
+                </span>
+            ) : (
+                <span className="text-xs bg-slate-700 text-gray-400 px-2 py-1 rounded border border-slate-600">
+                  CLASSIC
+                </span>
+            )}
         </div>
         
         <div className="bg-slate-800 p-8 rounded-xl w-full max-w-lg shadow-2xl border border-slate-700">

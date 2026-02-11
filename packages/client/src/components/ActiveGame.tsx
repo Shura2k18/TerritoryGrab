@@ -144,7 +144,7 @@ export const ActiveGame = ({ room, grid, onLeave }: ActiveGameProps) => {
           </button>
       </div>
 
-      <div className="flex flex-col lg:flex-row gap-6 w-full max-w-7xl items-start justify-center h-full">
+      <div className="flex flex-col lg:flex-row gap-6 w-full max-w-7xl items-center justify-center h-full">
         {/* MAP */}
         <div className="relative p-2 bg-slate-700 rounded-xl shadow-2xl ring-8 ring-slate-800/50 order-2 lg:order-1 max-w-[90vw] max-h-[80vh] overflow-auto">
           <div className="bg-white rounded shadow-lg overflow-hidden inline-block">
@@ -180,8 +180,38 @@ export const ActiveGame = ({ room, grid, onLeave }: ActiveGameProps) => {
                     </button>
                 </div>
             </div>
-
+             <div className="bg-slate-800 p-5 rounded-2xl shadow-xl border border-slate-700 flex-grow">
+                {/* --- ІНФО ПРО КІМНАТУ ТА РЕЖИМ --- */}
+                <div className="flex items-center justify-between mb-4 border-b border-slate-700 pb-3">
+                    <div className="flex flex-col">
+                        <span className="text-[10px] text-slate-500 uppercase font-bold">Room ID</span>
+                        <span className="font-mono text-white text-sm">{room.id}</span>
+                    </div>
+                </div>
+            </div>         
             <div className="bg-slate-800 p-5 rounded-2xl shadow-xl border border-slate-700 flex-grow">
+              <div className="flex items-center justify-between mb-4 pb-3">
+                    <div className="flex flex-col">
+                        <span className="text-[10px] text-slate-500 uppercase font-bold">Room ID</span>
+                        <span className="font-mono text-white text-sm">{room.id}</span>
+                    </div>
+                    
+                    {room.settings.mode === 'fast' ? (
+                        <div className="text-right">
+                             <span className="text-[10px] text-blue-400 uppercase font-bold block">Mode</span>
+                             <span className="text-xs bg-blue-900/30 text-blue-400 px-2 py-1 rounded border border-blue-700 font-bold flex items-center gap-1">
+                                ⚡ FAST GAME
+                             </span>
+                        </div>
+                    ) : (
+                        <div className="text-right">
+                             <span className="text-[10px] text-slate-500 uppercase font-bold block">Mode</span>
+                             <span className="text-xs bg-slate-700/50 text-slate-400 px-2 py-1 rounded border border-slate-600 font-bold">
+                                CLASSIC
+                             </span>
+                        </div>
+                    )}
+                </div>
                 <h3 className="text-xs text-slate-400 uppercase font-bold mb-4 border-b border-slate-700 pb-2">Players</h3>
                 <div className="space-y-2">
                     {room.players.map((p, index) => {
