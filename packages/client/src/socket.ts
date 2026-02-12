@@ -3,7 +3,7 @@ import { io, Socket } from 'socket.io-client';
 // URL бекенду (ми домовились, що це 5000)
 const URL = import.meta.env.MODE === 'production' 
   ? undefined 
-  : 'http://localhost:5000'; 
+  : 'http://localhost:8000'; 
 // Або просто: const URL = undefined; (якщо ти завжди запускаєш через сервер)
 
 export const socket: Socket = io(URL, {

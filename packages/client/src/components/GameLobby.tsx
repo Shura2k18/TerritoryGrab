@@ -71,9 +71,9 @@ export const GameLobby = ({ room, onLeave }: GameLobbyProps) => {
                         <span className="bg-slate-700 px-2 py-0.5 rounded border border-slate-600">{room.settings.boardSize}x{room.settings.boardSize}</span>
                     </div>
                 </div>
-                <div onClick={handleCopyId} className="cursor-pointer bg-slate-700 hover:bg-slate-600 px-3 py-1 lg:px-4 lg:py-2 rounded-lg border border-slate-600 flex flex-col items-end transition active:scale-95">
+                <div onClick={handleCopyId} className="cursor-pointer bg-slate-700 hover:bg-slate-600 px-3 py-1 lg:px-4 lg:py-2 rounded-lg border border-slate-600 flex flex-col items-center transition active:scale-95">
                     <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">ROOM ID</span>
-                    <span className="text-lg lg:text-xl font-mono font-bold text-blue-400">{room.id} 📋</span>
+                    <span className="text-lg lg:text-xl font-mono font-bold text-blue-400">{room.id}</span>
                 </div>
             </div>
 
@@ -159,7 +159,7 @@ export const GameLobby = ({ room, onLeave }: GameLobbyProps) => {
                         disabled={!canStart}
                         className={`w-full py-4 rounded-xl font-bold text-lg transition flex items-center justify-center gap-2 shadow-lg ${canStart ? "bg-green-600 hover:bg-green-500 text-white shadow-green-900/30 active:scale-95 animate-pulse" : "bg-slate-700 text-slate-500 cursor-not-allowed opacity-50"}`}
                     >
-                        {canStart ? "START GAME 🚀" : (room.players.length < 2 ? "Need 2+ Players" : "Waiting for Ready...")}
+                        {canStart ? "START GAME" : (room.players.length < 2 ? "Need 2+ Players" : "Waiting for Ready...")}
                     </button>
                 )}
             </div>

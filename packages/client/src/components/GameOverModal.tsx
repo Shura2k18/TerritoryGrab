@@ -78,7 +78,7 @@ export const GameOverModal = ({ room, grid, onLeave }: GameOverModalProps) => {
                 disabled={room.players.find(p => p.id === socket.id)?.wantsRematch}
                 className={`w-full py-4 rounded-xl font-bold text-xl transition flex items-center justify-center gap-2 ${room.players.find(p => p.id === socket.id)?.wantsRematch ? "bg-slate-700 text-green-400 cursor-default" : "bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-900/50"}`}
               >
-                {room.players.find(p => p.id === socket.id)?.wantsRematch ? "WAITING FOR OTHERS..." : "VOTE FOR REMATCH 🔄"}
+                {room.players.find(p => p.id === socket.id)?.wantsRematch ? "WAITING FOR OTHERS..." : "VOTE FOR REMATCH"}
               </button>
               
               <div className="flex justify-center gap-1">

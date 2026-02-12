@@ -234,10 +234,10 @@ export const ActiveGame = ({ room, grid, onLeave }: ActiveGameProps) => {
                             🏆 {room.winnerId === 'draw' ? "DRAW" : `WINNER: ${winnerName}`}
                         </span>
                     ) : notification ? (
-                        <span className="text-yellow-400 font-bold animate-pulse text-xs flex items-center gap-2">⚠️ {notification}</span>
+                        <span className="text-yellow-400 font-bold animate-pulse text-xs flex items-center gap-2">{notification}</span>
                     ) : (
                         <span className={`text-xs font-mono flex items-center gap-2 ${isMyTurn ? "text-green-400 font-bold" : "text-slate-400"}`}>
-                            {isMyTurn ? <>➤ YOUR TURN</> : <>⏳ Wait: {currentPlayerName}</>}
+                            {isMyTurn ? <>YOUR TURN</> : <>Wait: {currentPlayerName}</>}
                         </span>
                     )}
                  </div>
@@ -257,7 +257,7 @@ export const ActiveGame = ({ room, grid, onLeave }: ActiveGameProps) => {
                 {isPhantomValid && (
                     <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 animate-bounce-small">
                         <button onClick={handleConfirmMove} className="px-8 py-3 bg-green-500 text-black font-black text-xl rounded-full shadow-2xl border-4 border-green-600 active:scale-95">
-                            ✅ CONFIRM
+                            CONFIRM
                         </button>
                     </div>
                 )}
@@ -337,10 +337,10 @@ export const ActiveGame = ({ room, grid, onLeave }: ActiveGameProps) => {
                         🏆 {room.winnerId === 'draw' ? "DRAW" : `WINNER: ${winnerName}`}
                     </span>
                 ) : notification ? (
-                    <span className="text-yellow-400 font-bold animate-pulse text-sm flex items-center gap-2">⚠️ {notification}</span>
+                    <span className="text-yellow-400 font-bold animate-pulse text-sm flex items-center gap-2">{notification}</span>
                 ) : (
                     <span className={`text-sm font-mono flex items-center gap-2 ${isMyTurn ? "text-green-400 font-bold" : "text-slate-400"}`}>
-                        {isMyTurn ? <>➤ YOUR TURN</> : <>⏳ Wait: {currentPlayerName}</>}
+                        {isMyTurn ? <>YOUR TURN</> : <>Wait: {currentPlayerName}</>}
                     </span>
                 )}
              </div>
@@ -383,7 +383,7 @@ export const ActiveGame = ({ room, grid, onLeave }: ActiveGameProps) => {
                     <h3 className="text-xs text-slate-400 uppercase font-bold">{isFinished ? "Final Results" : "Players & Scores"}</h3>
                     <span className="font-mono text-xs text-slate-500">ID: {room.id}</span>
                 </div>
-                <div className="space-y-2 overflow-y-auto custom-scrollbar pr-1">
+                <div className="space-y-2 pr-1">
                     <PlayersList />
                 </div>
             </div>

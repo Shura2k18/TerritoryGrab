@@ -11,7 +11,9 @@ import { GameService } from './game.service';
 import type { CreateRoomDto, JoinRoomDto, MakeMoveDto, KickPlayerDto, ReconnectDto, SendMessageDto } from '@territory/shared';
 
 @WebSocketGateway({ cors: {
-    origin: process.env.CLIENT_URL || 'http://localhost:3000',
+    origin: [
+      process.env.CLIENT_URL
+    ].filter(Boolean),
     credentials: true
   } })
 export class GameGateway {
