@@ -9,7 +9,7 @@ interface GameCanvasProps {
   onCellClick: (x: number, y: number) => void;
   checkValidity?: (x: number, y: number) => boolean;
   phantomPos?: { x: number, y: number } | null;
-  disableHover?: boolean; // <--- НОВИЙ ПРОП
+  disableHover?: boolean;
 }
 
 export const GameCanvas = ({ 
@@ -20,7 +20,7 @@ export const GameCanvas = ({
   onCellClick, 
   checkValidity,
   phantomPos,
-  disableHover = false // За замовчуванням false (для ПК)
+  disableHover = false 
 }: GameCanvasProps) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   
@@ -149,7 +149,6 @@ export const GameCanvas = ({
     }
 
     // КУРСОР / ФАНТОМ
-    // Якщо disableHover увімкнено (мобільний), ми ігноруємо hoverPos і малюємо ТІЛЬКИ phantomPos
     const targetPos = phantomPos || (!disableHover ? hoverPos : null);
 
     if (targetPos && activeRect) {
@@ -180,6 +179,8 @@ export const GameCanvas = ({
   const handlePointerDown = (e: React.PointerEvent) => {
       e.currentTarget.setPointerCapture(e.pointerId);
       setIsDragging(false);
+      // Важливо: перевіряємо, чи це ліва кнопка, чи середня/права для драгу
+      // Але для простоти ми дозволяємо починати драг будь-якою, а клік тільки лівою
       setStartPan({ x: e.clientX, y: e.clientY });
   };
 
@@ -197,7 +198,7 @@ export const GameCanvas = ({
           return;
       }
 
-      // 2. Hover logic (ТІЛЬКИ ЯКЩО НЕ ВИМКНЕНО)
+      // 2. Hover logic
       if (!disableHover) {
           const rect = canvasRef.current?.getBoundingClientRect();
           if (rect) {
@@ -216,7 +217,9 @@ export const GameCanvas = ({
   const handlePointerUp = (e: React.PointerEvent) => {
       e.currentTarget.releasePointerCapture(e.pointerId);
       
-      if (!isDragging) {
+      // FIX: Перевіряємо, що це саме ЛІВА кнопка миші (button === 0)
+      // Права кнопка (2) проігнорується тут і піде далі (для повороту в ActiveGame)
+      if (!isDragging && e.button === 0) {
           const rect = canvasRef.current?.getBoundingClientRect();
           if (rect) {
               const { x, y } = screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
@@ -234,6 +237,7 @@ export const GameCanvas = ({
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
+          // preventDefault на contextmenu тут не ставимо, щоб подія спливала до ActiveGame
           className={`block touch-none w-full h-full ${isDragging ? "cursor-grabbing" : "cursor-crosshair"}`}
         />
         
