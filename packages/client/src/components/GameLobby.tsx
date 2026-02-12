@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { socket } from '../socket';
 import type { Room } from '@territory/shared';
 import { GameChat } from './GameChat';
@@ -10,16 +11,31 @@ interface GameLobbyProps {
 export const GameLobby = ({ room, onLeave }: GameLobbyProps) => {
   const myPlayer = room.players.find(p => p.socketId === socket.id);
   const isHost = room.hostId === myPlayer?.id;
-  const allReady = room.players.length >= 2 && room.players.every(p => p.isReady);
-  const canStart = allReady && room.players.length >= 2;
+  
+  // Стан для мобільних вкладок (Гравці або Чат)
+  const [mobileTab, setMobileTab] = useState<'players' | 'chat'>('players');
 
-  const toggleReady = () => socket.emit('toggleReady', { roomId: room.id });
+  // Логіка старту: Мінімум 2 гравці + Всі натиснули Ready
+  const allReady = room.players.length >= 2 && room.players.every(p => p.isReady);
+  const canStart = isHost && allReady;
+
+  useEffect(() => {
+    const handleException = (data: any) => {
+       alert(data.message || 'Error');
+    };
+    socket.on('exception', handleException);
+    return () => { socket.off('exception', handleException); };
+  }, []);
+
+  const handleToggleReady = () => {
+    socket.emit('toggleReady', { roomId: room.id });
+  };
   
   const handleStartGame = () => {
-    if (isHost && canStart) {
+    if (canStart) {
         socket.emit('startGame', { roomId: room.id });
-    } else if (isHost) {
-        alert("Need at least 2 players to start!");
+    } else {
+        alert("Wait for everyone to be READY!");
     }
   };
 
@@ -28,90 +44,139 @@ export const GameLobby = ({ room, onLeave }: GameLobbyProps) => {
         socket.emit('kickPlayer', { roomId: room.id, targetId });
     }
   };
+  
+  const handleCopyId = () => {
+     navigator.clipboard.writeText(room.id);
+  };
+
+  if (!room) return <div className="text-white flex items-center justify-center h-screen">Loading...</div>;
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white flex flex-col items-center justify-center font-sans p-4 relative">
-        <div className="absolute top-4 left-4">
-            <button onClick={onLeave} className="px-4 py-2 bg-slate-800 hover:bg-red-900/50 border border-slate-600 text-gray-300 hover:text-white rounded-lg transition flex items-center gap-2">
-              ← Leave Lobby
-            </button>
-        </div>
-
-        <h1 className="text-4xl font-bold mb-2 text-blue-400">LOBBY</h1>
+    <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center p-4 font-sans">
+      
+      {/* ГОЛОВНИЙ КОНТЕЙНЕР */}
+      <div className="w-full max-w-6xl bg-slate-800 rounded-2xl shadow-2xl overflow-hidden border border-slate-700 flex flex-col lg:flex-row h-[85vh] lg:h-[700px]">
         
-        <div className="flex items-center gap-3 mb-8">
-            <p className="text-gray-500 font-mono bg-slate-800 px-3 py-1 rounded border border-slate-700">
-                ID: <span className="text-white select-all">{room.id}</span>
-            </p>
-            {room.settings.isPrivate && <span className="text-xs bg-yellow-900/30 text-yellow-500 px-2 py-1 rounded border border-yellow-700 font-bold">PRIVATE</span>}
-            {room.settings.mode === 'fast' ? (
-                <span className="text-xs bg-blue-900/50 text-blue-400 px-2 py-1 rounded border border-blue-700 font-bold flex items-center gap-1">FAST MODE</span>
-            ) : (
-                <span className="text-xs bg-slate-700 text-gray-400 px-2 py-1 rounded border border-slate-600">CLASSIC</span>
-            )}
-        </div>
-        
-        {/* FIX 1: Фіксована висота h-[600px] замість min-h */}
-        <div className="flex flex-col lg:flex-row gap-6 w-full max-w-6xl h-[600px]">
-          
-          {/* ЛІВА ПАНЕЛЬ (Гравці) */}
-          <div className="bg-slate-800 p-8 rounded-xl flex-1 shadow-2xl border border-slate-700 flex flex-col overflow-hidden">
-            <div className="flex justify-between items-center mb-6 flex-shrink-0">
-                <h2 className="text-xl font-bold text-gray-300">Players</h2>
-                <span className="text-sm bg-slate-900 px-3 py-1 rounded-full border border-slate-700 text-blue-400">
-                  {room.players.length} / {room.settings.maxPlayers}
-                </span>
-            </div>
+        {/* === ЛІВА КОЛОНКА (На ПК) / ОСНОВНА (На Мобільному) === */}
+        <div className="flex-1 flex flex-col min-w-0">
             
-            {/* FIX 2: overflow-y-auto тут теж потрібен, якщо гравців багато */}
-            <div className="space-y-3 mb-8 flex-1 overflow-y-auto pr-2 custom-scrollbar min-h-0">
-              {room.players.map(p => (
-                <div key={p.id} className={`flex items-center justify-between p-3 bg-slate-900 rounded-lg border border-slate-700 transition-all ${!p.isOnline ? "opacity-50 grayscale border-red-900/30" : ""}`}>
-                    <div className="flex items-center gap-3">
-                      <div className="relative">
-                          <div className="w-4 h-4 rounded-full shadow-sm" style={{ backgroundColor: p.color }}></div>
-                          {!p.isOnline && <span className="absolute -top-1 -right-1 flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span></span>}
-                      </div>
-                      <span className={p.socketId === socket.id ? "font-bold text-white" : "text-gray-400"}>
-                        {p.username} {p.socketId === socket.id && "(You)"}
-                        {p.id === room.hostId && <span className="ml-2 text-[10px] bg-yellow-500/20 text-yellow-500 px-1 rounded border border-yellow-500/30">HOST</span>}
-                        {!p.isOnline && <span className="ml-2 text-[10px] text-red-500 font-bold">OFFLINE</span>}
-                      </span>
-                    </div>
-                    
-                    <div className="flex items-center gap-3">
-                        <span className={`text-xs font-bold px-2 py-1 rounded tracking-wider ${p.isReady ? "bg-green-500/10 text-green-400 border border-green-500/20" : "bg-red-500/10 text-red-400 border border-red-500/20"}`}>
-                          {p.isReady ? "READY" : "WAITING"}
-                        </span>
-                        {isHost && p.id !== myPlayer?.id && (
-                            <button onClick={() => handleKick(p.id)} className="text-slate-600 hover:text-red-500 transition px-2 py-1 hover:bg-red-900/20 rounded" title="Kick Player">✕</button>
-                        )}
+            {/* ШАПКА ЛОББІ */}
+            <div className="p-4 lg:p-6 border-b border-slate-700 flex items-center justify-between bg-slate-800">
+                <div>
+                    <h1 className="text-xl lg:text-2xl font-bold text-white flex items-center gap-3">
+                        LOBBY <span className="text-slate-500 text-sm font-normal">({room.players.length}/{room.settings.maxPlayers})</span>
+                    </h1>
+                    <div className="flex gap-2 lg:gap-4 mt-1 text-xs lg:text-sm text-gray-400">
+                        <span className="bg-slate-700 px-2 py-0.5 rounded border border-slate-600 uppercase">{room.settings.mode}</span>
+                        <span className="bg-slate-700 px-2 py-0.5 rounded border border-slate-600">{room.settings.boardSize}x{room.settings.boardSize}</span>
                     </div>
                 </div>
-              ))}
-              {Array.from({ length: room.settings.maxPlayers - room.players.length }).map((_, i) => (
-                  <div key={i} className="p-3 border border-dashed border-slate-700 rounded-lg text-slate-600 text-center text-sm">Waiting for player...</div>
-              ))}
+                <div onClick={handleCopyId} className="cursor-pointer bg-slate-700 hover:bg-slate-600 px-3 py-1 lg:px-4 lg:py-2 rounded-lg border border-slate-600 flex flex-col items-end transition active:scale-95">
+                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">ROOM ID</span>
+                    <span className="text-lg lg:text-xl font-mono font-bold text-blue-400">{room.id} 📋</span>
+                </div>
             </div>
 
-            <div className="flex flex-col gap-4 mt-auto flex-shrink-0">
-                <button onClick={toggleReady} className={`w-full py-4 rounded-xl font-bold text-xl transition transform active:scale-[0.98] ${myPlayer?.isReady ? "bg-slate-700 hover:bg-slate-600 text-gray-300" : "bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-900/50"}`}>
-                  {myPlayer?.isReady ? "CANCEL READY" : "I AM READY"}
+            {/* МОБІЛЬНІ ТАБИ (Тільки на телефоні visible) */}
+            <div className="flex lg:hidden border-b border-slate-700 bg-slate-900">
+                <button 
+                    onClick={() => setMobileTab('players')}
+                    className={`flex-1 py-3 text-sm font-bold uppercase tracking-wider ${mobileTab === 'players' ? "text-blue-400 border-b-2 border-blue-400 bg-slate-800" : "text-gray-500"}`}
+                >
+                    Players
                 </button>
+                <button 
+                    onClick={() => setMobileTab('chat')}
+                    className={`flex-1 py-3 text-sm font-bold uppercase tracking-wider ${mobileTab === 'chat' ? "text-blue-400 border-b-2 border-blue-400 bg-slate-800" : "text-gray-500"}`}
+                >
+                    Chat
+                </button>
+            </div>
+
+            {/* КОНТЕНТ (ЗМІНЮЄТЬСЯ НА МОБІЛЬНОМУ, СТАТИЧНИЙ НА ПК) */}
+            <div className="flex-1 overflow-hidden relative">
+                
+                {/* 1. СПИСОК ГРАВЦІВ (Показуємо, якщо це ПК АБО якщо на мобільному обрано таб Players) */}
+                <div className={`absolute inset-0 flex flex-col ${mobileTab === 'chat' ? 'hidden lg:flex' : 'flex'}`}>
+                    <div className="flex-1 overflow-y-auto custom-scrollbar p-4 lg:p-6 space-y-3 bg-slate-900/50">
+                        {room.players.map(p => (
+                            <div key={p.id} className={`flex items-center justify-between p-3 lg:p-4 rounded-xl border transition group ${p.isReady ? "bg-green-900/10 border-green-500/30" : "bg-slate-800 border-slate-700"}`}>
+                                <div className="flex items-center gap-3 lg:gap-4">
+                                    <div className="relative">
+                                        <div className="w-8 h-8 lg:w-10 lg:h-10 rounded-full shadow-lg border-2 border-slate-600" style={{ backgroundColor: p.color }}></div>
+                                        {p.id === room.hostId && <span className="absolute -top-1 -right-1 text-xs">👑</span>}
+                                    </div>
+                                    <div className="flex flex-col">
+                                        <span className={`font-bold text-sm lg:text-lg ${p.socketId === socket.id ? "text-white" : "text-gray-300"}`}>
+                                            {p.username} {p.socketId === socket.id && "(You)"}
+                                        </span>
+                                        {!p.isOnline && <span className="text-[10px] text-red-500 font-bold uppercase">OFFLINE</span>}
+                                    </div>
+                                </div>
+                                
+                                <div className="flex items-center gap-2 lg:gap-3">
+                                    <span className={`text-[10px] lg:text-xs font-bold px-2 py-1 lg:px-3 lg:py-1 rounded-full uppercase tracking-wider ${p.isReady ? "text-green-400 bg-green-900/20" : "text-slate-500 bg-slate-800"}`}>
+                                        {p.isReady ? "READY" : "WAITING"}
+                                    </span>
+                                    {isHost && p.id !== myPlayer?.id && (
+                                        <button onClick={() => handleKick(p.id)} className="lg:opacity-0 group-hover:opacity-100 p-2 text-slate-500 hover:text-red-500 rounded-lg transition">✕</button>
+                                    )}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                {/* 2. ЧАТ (Тільки для мобільного в цьому контейнері, коли обрано таб Chat) */}
+                <div className={`absolute inset-0 flex flex-col lg:hidden ${mobileTab === 'chat' ? 'flex' : 'hidden'}`}>
+                     <GameChat roomId={room.id} messages={room.chatHistory || []} players={room.players} />
+                </div>
+
+            </div>
+
+            {/* НИЖНЯ ПАНЕЛЬ: КНОПКИ ДІЇ */}
+            <div className="p-4 lg:p-6 border-t border-slate-700 bg-slate-800 flex flex-col gap-3">
+                
+                {/* РЯДОК 1: READY / LEAVE */}
+                <div className="flex gap-3 h-14">
+                    <button onClick={onLeave} className="px-6 rounded-xl font-bold text-slate-400 border border-slate-600 hover:bg-slate-700 hover:text-white transition text-sm lg:text-base">
+                        EXIT
+                    </button>
+                    
+                    {/* Кнопка READY тепер доступна ВСІМ (і Хосту теж) */}
+                    <button 
+                        onClick={handleToggleReady}
+                        className={`flex-1 rounded-xl font-bold text-lg transition shadow-lg active:scale-95 ${myPlayer?.isReady ? "bg-slate-700 text-gray-300 border border-slate-600" : "bg-blue-600 hover:bg-blue-500 text-white shadow-blue-900/30"}`}
+                    >
+                        {myPlayer?.isReady ? "CANCEL READY" : "I'M READY!"}
+                    </button>
+                </div>
+                
+                {/* РЯДОК 2: START GAME (Тільки для Хоста) */}
                 {isHost && (
-                    <button onClick={handleStartGame} disabled={!canStart} className={`w-full py-4 rounded-xl font-bold text-xl transition flex items-center justify-center gap-2 ${canStart ? "bg-green-600 hover:bg-green-500 text-white shadow-lg shadow-green-900/50 cursor-pointer animate-pulse" : "bg-slate-800 text-slate-600 border border-slate-700 cursor-not-allowed"}`}>
-                      START GAME
+                    <button 
+                        onClick={handleStartGame}
+                        disabled={!canStart}
+                        className={`w-full py-4 rounded-xl font-bold text-lg transition flex items-center justify-center gap-2 shadow-lg ${canStart ? "bg-green-600 hover:bg-green-500 text-white shadow-green-900/30 active:scale-95 animate-pulse" : "bg-slate-700 text-slate-500 cursor-not-allowed opacity-50"}`}
+                    >
+                        {canStart ? "START GAME 🚀" : (room.players.length < 2 ? "Need 2+ Players" : "Waiting for Ready...")}
                     </button>
                 )}
-                {isHost && !canStart && <p className="text-center text-xs text-red-400/70">{room.players.length < 2 ? "Need min 2 players" : "Wait for everyone to be READY"}</p>}
             </div>
-          </div>
-          
-          {/* ПРАВА ПАНЕЛЬ (Чат) - h-full тут працюватиме, бо батько має фіксовану висоту */}
-          <div className="lg:w-80 h-full flex flex-col"> 
-             <GameChat roomId={room.id} messages={room.chatHistory || []} players={room.players} />
-          </div>
         </div>
+
+        {/* === ПРАВА КОЛОНКА (ЧАТ - ТІЛЬКИ ПК) === */}
+        {/* На мобільному цей блок прихований, бо чат рендериться всередині табів */}
+        <div className="hidden lg:flex w-80 border-l border-slate-700 bg-slate-900 flex-col">
+            <div className="p-4 border-b border-slate-800 font-bold text-slate-400 text-sm uppercase tracking-wider text-center">
+                Lobby Chat
+            </div>
+            <div className="flex-1 min-h-0">
+                <GameChat roomId={room.id} messages={room.chatHistory || []} players={room.players} />
+            </div>
+        </div>
+
+      </div>
     </div>
   );
 };

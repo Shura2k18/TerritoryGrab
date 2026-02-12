@@ -108,7 +108,6 @@ export class GameService {
     if (this.disconnectTimers.has(timerKey)) {
         clearTimeout(this.disconnectTimers.get(timerKey));
         this.disconnectTimers.delete(timerKey);
-        console.log(`[RECONNECT] Player ${player.username} restored`);
     }
 
     // Оновлюємо сокет і статус
@@ -130,7 +129,6 @@ export class GameService {
             const timer = setTimeout(() => this.finalizeDisconnect(roomId, player.id), 60000);
             this.disconnectTimers.set(`${roomId}_${player.id}`, timer);
             
-            console.log(`[DISCONNECT] ${player.username} (waiting 60s)`);
             return { roomId, room };
         }
     }
@@ -142,7 +140,6 @@ export class GameService {
       const room = this.rooms.get(roomId);
       if (!room) return;
       
-      console.log(`[TIMEOUT] Removing player ${playerId}`);
       room.players = room.players.filter(p => p.id !== playerId);
       this.disconnectTimers.delete(`${roomId}_${playerId}`);
 
@@ -371,7 +368,6 @@ export class GameService {
 
     this.addMessage(room, 'system', 'System', 'Game Started!', '#fbbf24', true);
     
-    console.log(`[START] Room ${roomId} started by ${player.username}`);
     return room;
   }
 
@@ -436,7 +432,6 @@ export class GameService {
            });
            
            this.addMessage(room, 'system', 'System', 'Game Restarted!', '#fbbf24', true);
-           console.log(`[RESTART] Room ${roomId}`);
       }
       return room;
   }
@@ -449,30 +444,17 @@ export class GameService {
     const player = room.players.find(p => p.socketId === clientSocketId);
     if (!player) return null;
 
-    // --- ВИПРАВЛЕННЯ ТУТ ---
-    
-    // 1. СПОЧАТКУ перевіряємо, чи треба завершити гру (поки гравець ще в списку!)
-    // Якщо гра йде, ми повинні зарахувати поразку і зберегти результати ВСІХ гравців
     if (room.status === 'playing') {
         this.addMessage(room, 'system', 'System', `${player.username} left. Game Over!`, '#ef4444', true);
         
-        // Викликаємо фініш. Він збереже ВСІХ поточних гравців (включно з тим, хто виходить) у gameResult
         this.finishGame(room);
-        
-        // Оскільки гра закінчена, статус вже 'finished'
     }
-
-    // 2. ТЕПЕР видаляємо гравця з активного списку
     room.players = room.players.filter(p => p.id !== player.id);
-    
-    // 3. Чистимо таймери
     const timerKey = `${roomId}_${player.id}`;
     if (this.disconnectTimers.has(timerKey)) {
       clearTimeout(this.disconnectTimers.get(timerKey));
       this.disconnectTimers.delete(timerKey);
     }
-    
-    // 4. Якщо кімната пуста - видаляємо
     if (room.players.length === 0) {
         this.rooms.delete(roomId);
         return null;
