@@ -44,9 +44,10 @@ export interface Room {
   chatHistory: ChatMessage[];
   winnerId?: string;
   gameResult?: {
-    players: PlayerResult[]; // Список всіх хто грав
-    winnerId: string | null; // Хто виграв (або null якщо нічия)
+    players: PlayerResult[];
+    winnerId: string | null;
   };
+  startTurnIndex: number;
 }
 export interface ToggleReadyDto {
   roomId: string;

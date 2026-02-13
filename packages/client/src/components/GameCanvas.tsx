@@ -27,13 +27,13 @@ export const GameCanvas = ({
   // Стан камери
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [scale, setScale] = useState(1);
-  
-  // Стан миші/тача
-  const [isDragging, setIsDragging] = useState(false);
-  const [startPan, setStartPan] = useState<{x: number, y: number} | null>(null);
   const [hoverPos, setHoverPos] = useState<{x: number, y: number} | null>(null);
 
-  // Очищення hoverPos, якщо ми перейшли в режим disableHover (мобільний)
+  // --- МУЛЬТИТАЧ ЛОГІКА ---
+  const activePointers = useRef<Map<number, {x: number, y: number}>>(new Map());
+  const prevDist = useRef<number | null>(null);
+  const isDragging = useRef(false);
+
   useEffect(() => {
       if (disableHover) {
           setHoverPos(null);
@@ -72,7 +72,7 @@ export const GameCanvas = ({
       return () => window.removeEventListener('resize', fitToScreen);
   }, [fitToScreen]);
 
-  // --- 2. ZOOM (WHEEL) ---
+  // --- 2. ZOOM (WHEEL - ПК) ---
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -80,13 +80,26 @@ export const GameCanvas = ({
     const handleWheel = (e: WheelEvent) => {
         e.preventDefault(); 
         const zoomSensitivity = 0.001;
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+
+        const worldX = (mouseX - offset.x) / scale;
+        const worldY = (mouseY - offset.y) / scale;
+
         const delta = -e.deltaY * zoomSensitivity;
-        setScale(prevScale => Math.min(Math.max(0.1, prevScale + delta), 5));
+        const newScale = Math.min(Math.max(0.1, scale + delta), 5);
+
+        const newOffsetX = mouseX - worldX * newScale;
+        const newOffsetY = mouseY - worldY * newScale;
+
+        setScale(newScale);
+        setOffset({ x: newOffsetX, y: newOffsetY });
     };
 
     canvas.addEventListener('wheel', handleWheel, { passive: false });
     return () => canvas.removeEventListener('wheel', handleWheel);
-  }, []);
+  }, [scale, offset]);
 
   // --- 3. КОНВЕРТАЦІЯ КООРДИНАТ ---
   const screenToWorld = useCallback((screenX: number, screenY: number) => {
@@ -106,6 +119,7 @@ export const GameCanvas = ({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
+    // Ресайз канвасу, якщо змінився розмір контейнера
     const parent = canvas.parentElement;
     if (parent && (canvas.width !== parent.clientWidth || canvas.height !== parent.clientHeight)) {
          canvas.width = parent.clientWidth;
@@ -129,7 +143,7 @@ export const GameCanvas = ({
     ctx.fillRect(0, 0, cols * baseCellSize, rows * baseCellSize);
     ctx.shadowColor = 'transparent'; 
 
-    // Сітка та Клітинки
+    // Сітка
     for (let r = 0; r < rows; r++) {
       if (!grid[r]) continue;
       for (let c = 0; c < cols; c++) {
@@ -176,30 +190,99 @@ export const GameCanvas = ({
 
   // --- ОБРОБНИКИ ПОДІЙ ---
 
+  const getDistance = (p1: {x: number, y: number}, p2: {x: number, y: number}) => {
+      return Math.hypot(p2.x - p1.x, p2.y - p1.y);
+  };
+
+  const getCenter = (p1: {x: number, y: number}, p2: {x: number, y: number}) => {
+      return { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+  };
+
   const handlePointerDown = (e: React.PointerEvent) => {
       e.currentTarget.setPointerCapture(e.pointerId);
-      setIsDragging(false);
-      // Важливо: перевіряємо, чи це ліва кнопка, чи середня/права для драгу
-      // Але для простоти ми дозволяємо починати драг будь-якою, а клік тільки лівою
-      setStartPan({ x: e.clientX, y: e.clientY });
+      activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      
+      isDragging.current = false;
+
+      if (activePointers.current.size === 2) {
+          const points = Array.from(activePointers.current.values());
+          prevDist.current = getDistance(points[0], points[1]);
+      }
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
-      // 1. Drag (Pan)
-      if (startPan && e.buttons > 0) { 
-          const dx = e.clientX - startPan.x;
-          const dy = e.clientY - startPan.y;
-          
-          if (Math.abs(dx) > 2 || Math.abs(dy) > 2 || isDragging) {
-             setIsDragging(true);
-             setOffset(prev => ({ x: prev.x + dx, y: prev.y + dy }));
-             setStartPan({ x: e.clientX, y: e.clientY });
-          }
-          return;
+      // Якщо поінтер вже зафіксований (кнопка натиснута), оновлюємо його
+      if (activePointers.current.has(e.pointerId)) {
+          activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
       }
 
-      // 2. Hover logic
-      if (!disableHover) {
+      // 1. ZOOM (2 пальці)
+      if (activePointers.current.size === 2) {
+          const points = Array.from(activePointers.current.values());
+          const newDist = getDistance(points[0], points[1]);
+          const center = getCenter(points[0], points[1]);
+
+          if (prevDist.current) {
+              const zoomFactor = newDist / prevDist.current;
+              const newScale = Math.min(Math.max(0.1, scale * zoomFactor), 5);
+              
+              const rect = canvasRef.current?.getBoundingClientRect();
+              if (rect) {
+                  const centerX = center.x - rect.left;
+                  const centerY = center.y - rect.top;
+                  
+                  const worldX = (centerX - offset.x) / scale;
+                  const worldY = (centerY - offset.y) / scale;
+
+                  const newOffsetX = centerX - worldX * newScale;
+                  const newOffsetY = centerY - worldY * newScale;
+
+                  setScale(newScale);
+                  setOffset({ x: newOffsetX, y: newOffsetY });
+              }
+          }
+          prevDist.current = newDist;
+          isDragging.current = true;
+          return; // Якщо зумимо, ховер не потрібен
+      } 
+      
+      // 2. PAN (1 палець / мишка з натиснутою кнопкою)
+      if (activePointers.current.size === 1) {
+          const point = activePointers.current.get(e.pointerId);
+          if (point) {
+            // Для розрахунку dx/dy нам треба знати попередню позицію, 
+            // але в set ми вже записали нову. 
+            // Тому тут спрощений варіант для Pan, який працює через e.movementX/Y,
+            // або треба зберігати prevPos окремо. 
+            // Але простіше для PointerMove використовувати e.movementX/Y для миші,
+            // проте для Touch це не завжди працює коректно.
+            // Щоб не ускладнювати, візьмемо різницю з останнього збереженого:
+            // (В цьому коді ми просто оновили map, тому це не спрацює ідеально для Pan без prev state)
+            
+            // FIX: Використовуємо e.movement, це надійніше для Pan на ПК
+            // Для мобілок це теж часто працює, або треба зберігати previous coordinates.
+            
+            // Щоб не ламати логіку:
+             // Якщо ми активно драгаємо (size=1), ховер не рахуємо.
+             // Тут треба додати логіку зміщення offset.
+             // Але в попередньому коді ми робили (new - prev).
+             // Давайте зробимо так: Hover рахуємо ЗАВЖДИ, якщо не драг.
+          }
+          
+          // Простий pan через movement (працює для миші і більшості тачів в pointer events)
+          if (e.buttons > 0 || e.pointerType === 'touch') {
+              if (Math.abs(e.movementX) > 0 || Math.abs(e.movementY) > 0) {
+                 // Тільки якщо ми реально рухаємось
+                 // На тачскрінах іноді буває мікро-рух
+                 isDragging.current = true;
+                 setOffset(prev => ({ x: prev.x + e.movementX, y: prev.y + e.movementY }));
+              }
+          }
+      }
+
+      // 3. HOVER (ПК - миша без кнопок, або якщо ми не драгаємо)
+      // Винесено назовні, щоб працювало при size === 0 (простий рух миші)
+      if (!disableHover && !isDragging.current && activePointers.current.size < 2) {
           const rect = canvasRef.current?.getBoundingClientRect();
           if (rect) {
               const { x, y } = screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
@@ -216,18 +299,19 @@ export const GameCanvas = ({
 
   const handlePointerUp = (e: React.PointerEvent) => {
       e.currentTarget.releasePointerCapture(e.pointerId);
-      
-      // FIX: Перевіряємо, що це саме ЛІВА кнопка миші (button === 0)
-      // Права кнопка (2) проігнорується тут і піде далі (для повороту в ActiveGame)
-      if (!isDragging && e.button === 0) {
-          const rect = canvasRef.current?.getBoundingClientRect();
-          if (rect) {
-              const { x, y } = screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
-              onCellClick(x, y);
+      activePointers.current.delete(e.pointerId);
+      prevDist.current = null;
+
+      if (activePointers.current.size === 0) {
+          if (!isDragging.current && e.button === 0) {
+              const rect = canvasRef.current?.getBoundingClientRect();
+              if (rect) {
+                  const { x, y } = screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
+                  onCellClick(x, y);
+              }
           }
+          isDragging.current = false;
       }
-      setStartPan(null);
-      setIsDragging(false);
   };
 
   return (
@@ -237,11 +321,12 @@ export const GameCanvas = ({
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
-          // preventDefault на contextmenu тут не ставимо, щоб подія спливала до ActiveGame
-          className={`block touch-none w-full h-full ${isDragging ? "cursor-grabbing" : "cursor-crosshair"}`}
+          onPointerCancel={handlePointerUp}
+          onPointerOut={handlePointerUp}
+          onPointerLeave={handlePointerUp}
+          className={`block touch-none w-full h-full cursor-crosshair`}
         />
-        
-        {/* Кнопки зуму */}
+        {/* Кнопки зуму... */}
         <div className="absolute bottom-4 right-4 flex flex-col gap-2 z-10 opacity-50 hover:opacity-100 transition-opacity">
             <button onClick={() => setScale(s => Math.min(s + 0.2, 5))} className="w-8 h-8 bg-slate-800 text-white rounded font-bold border border-slate-600">+</button>
             <button onClick={() => setScale(s => Math.max(s - 0.2, 0.1))} className="w-8 h-8 bg-slate-800 text-white rounded font-bold border border-slate-600">-</button>

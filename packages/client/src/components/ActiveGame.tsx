@@ -1,7 +1,7 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { GameCanvas } from './GameCanvas';
 import { socket } from '../socket';
-import type { Room} from '@territory/shared';
+import type { Room } from '@territory/shared';
 import { GameChat } from './GameChat';
 import { GameOverModal } from './GameOverModal';
 
@@ -23,6 +23,27 @@ export const ActiveGame = ({ room, grid, onLeave }: ActiveGameProps) => {
   const [phantomPos, setPhantomPos] = useState<{x: number, y: number} | null>(null);
   const [showMobileMenu, setShowMobileMenu] = useState<'players' | 'chat' | null>(null);
 
+  // --- Chat Notifications ---
+  const [unreadCount, setUnreadCount] = useState(0);
+  const lastChatLength = useRef(room.chatHistory?.length || 0);
+
+  useEffect(() => {
+    const currentLength = room.chatHistory?.length || 0;
+    if (currentLength > lastChatLength.current) {
+        if (showMobileMenu !== 'chat') {
+            setUnreadCount(prev => prev + 1);
+        }
+    }
+    lastChatLength.current = currentLength;
+  }, [room.chatHistory, showMobileMenu]);
+
+  useEffect(() => {
+      if (showMobileMenu === 'chat') {
+          setUnreadCount(0);
+      }
+  }, [showMobileMenu]);
+
+  // --- Resize Handler ---
   useEffect(() => {
       const handleResize = () => setIsMobile(window.innerWidth < 1024);
       window.addEventListener('resize', handleResize);
@@ -37,6 +58,21 @@ export const ActiveGame = ({ room, grid, onLeave }: ActiveGameProps) => {
   const isFinished = room.status === 'finished';
   const currentPlayerName = room.players[room.currentTurnIndex]?.username || "Unknown";
 
+  // --- Start Position Logic ---
+  const hasTerritory = useMemo(() => {
+      if (!myPlayer || !grid) return false;
+      return grid.some(row => row.includes(myPlayer.id));
+  }, [grid, myPlayer]);
+
+  const startHint = useMemo(() => {
+      if (myIndex === 0) return "↖ Почни з ЛІВОГО ВЕРХНЬОГО кута";
+      if (myIndex === 1) return "↘ Почни з ПРАВОГО НИЖНЬОГО кута";
+      if (myIndex === 2) return "↗ Почни з ПРАВОГО ВЕРХНЬОГО кута";
+      if (myIndex === 3) return "↙ Почни з ЛІВОГО НИЖНЬОГО кута";
+      return "Почни зі свого кута";
+  }, [myIndex]);
+
+  // --- Scores ---
   const liveScores = useMemo(() => {
     const counts: Record<string, number> = {};
     room.players.forEach(p => counts[p.id] = 0);
@@ -69,11 +105,11 @@ export const ActiveGame = ({ room, grid, onLeave }: ActiveGameProps) => {
      if (isMyTurn) {
          setIsPlacing(false);
          setDice(null);
-         setPhantomPos(null); // Скидаємо фантом при зміні ходу
+         setPhantomPos(null);
      }
   }, [room.currentTurnIndex, isMyTurn]);
 
-  // --- ВАЛІДАЦІЯ ---
+  // --- Validation ---
   const checkValidity = (x: number, y: number, w: number, h: number, playerId: string): boolean => {
     if (y + h > ROWS || x + w > COLS || x < 0 || y < 0) return false;
     for (let r = 0; r < h; r++) {
@@ -81,8 +117,8 @@ export const ActiveGame = ({ room, grid, onLeave }: ActiveGameProps) => {
         if (grid[y + r]?.[x + c] !== null) return false; 
       }
     }
-    const hasTerritory = grid.some(row => row.includes(playerId));
-    if (!hasTerritory) {
+    const hasTerritoryLocal = grid.some(row => row.includes(playerId));
+    if (!hasTerritoryLocal) {
       let startX = 0; let startY = 0;
       if (myIndex === 0) { startX = 0; startY = 0; }
       else if (myIndex === 1) { startX = COLS - 1; startY = ROWS - 1; }
@@ -119,7 +155,6 @@ export const ActiveGame = ({ room, grid, onLeave }: ActiveGameProps) => {
     if (isMobile) {
         setPhantomPos({ x, y });
     } else {
-        // На ПК: Можна ходити відразу
         if (checkValidity(x, y, dice[0], dice[1], myPlayer.id)) {
             socket.emit('makeMove', { roomId: room.id, x, y, w: dice[0], h: dice[1] });
             setIsPlacing(false);
@@ -216,28 +251,42 @@ export const ActiveGame = ({ room, grid, onLeave }: ActiveGameProps) => {
       const isPhantomValid = phantomPos && dice && myPlayer && checkValidity(phantomPos.x, phantomPos.y, dice[0], dice[1], myPlayer.id);
 
       return (
-        <div className="h-screen w-full bg-slate-900 text-white flex flex-col font-sans overflow-hidden">
+        // ВИПРАВЛЕНО: h-[100dvh] та supports для динамічної висоти
+        <div className="h-[100dvh] w-full bg-slate-900 text-white flex flex-col font-sans overflow-hidden supports-[height:100cqh]:h-[100cqh]">
             {/* Header */}
             <div className="h-14 bg-slate-800 flex items-center justify-between px-4 border-b border-slate-700 z-20 flex-shrink-0">
                 <button onClick={onLeave} className="bg-slate-700 px-3 py-1 rounded text-sm hover:bg-slate-600">Exit</button>
                 <div className="flex gap-2">
                     <button onClick={() => setShowMobileMenu('players')} className="bg-slate-700 px-3 py-1 rounded text-sm">👥</button>
-                    <button onClick={() => setShowMobileMenu('chat')} className="bg-slate-700 px-3 py-1 rounded text-sm">💬</button>
+                    {/* Кнопка чату з індикатором */}
+                    <button onClick={() => setShowMobileMenu('chat')} className="bg-slate-700 px-3 py-1 rounded text-sm relative">
+                        💬
+                        {unreadCount > 0 && (
+                            <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[10px] font-bold px-1.5 rounded-full min-w-[18px] h-[18px] flex items-center justify-center border-2 border-slate-800 animate-pulse">
+                                {unreadCount > 9 ? '9+' : unreadCount}
+                            </span>
+                        )}
+                    </button>
                 </div>
             </div>
 
-            {/* Mobile Status Bar (NEW: Above Canvas) */}
+            {/* Mobile Status Bar */}
             <div className="flex-shrink-0 bg-slate-900 border-b border-slate-800 p-2 flex justify-center z-10">
                  <div className={`px-4 py-1 rounded-full border shadow-sm backdrop-blur-md transition-all w-auto ${isFinished ? "bg-slate-900 border-yellow-500/50" : "bg-slate-800 border-slate-600"}`}>
                     {isFinished ? (
                         <span className="text-yellow-400 font-bold text-xs flex items-center gap-2 animate-pulse">
-                            🏆 {room.winnerId === 'draw' ? "DRAW" : `WINNER: ${winnerName}`}
+                            {room.winnerId === 'draw' ? "НІЧИЯ" : `ПЕРЕМІГ: ${winnerName}`}
                         </span>
                     ) : notification ? (
                         <span className="text-yellow-400 font-bold animate-pulse text-xs flex items-center gap-2">{notification}</span>
                     ) : (
                         <span className={`text-xs font-mono flex items-center gap-2 ${isMyTurn ? "text-green-400 font-bold" : "text-slate-400"}`}>
-                            {isMyTurn ? <>YOUR TURN</> : <>Wait: {currentPlayerName}</>}
+                            {isMyTurn ? (
+                                !hasTerritory ? <span className="animate-pulse text-yellow-300 uppercase">{startHint}</span> 
+                                : <>ТВІЙ ХІД</>
+                            ) : (
+                                <>Чекаємо: {currentPlayerName}</>
+                            )}
                         </span>
                     )}
                  </div>
@@ -251,9 +300,10 @@ export const ActiveGame = ({ room, grid, onLeave }: ActiveGameProps) => {
                     onCellClick={handleCellClick}
                     checkValidity={(x, y) => (dice && myPlayer) ? checkValidity(x, y, dice[0], dice[1], myPlayer.id) : false}
                     phantomPos={phantomPos}
+                    disableHover={true} 
                 />
 
-                {/* Confirm Button (Floating at bottom is still good for thumb reach) */}
+                {/* Confirm Button */}
                 {isPhantomValid && (
                     <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 animate-bounce-small">
                         <button onClick={handleConfirmMove} className="px-8 py-3 bg-green-500 text-black font-black text-xl rounded-full shadow-2xl border-4 border-green-600 active:scale-95">
@@ -314,7 +364,7 @@ export const ActiveGame = ({ room, grid, onLeave }: ActiveGameProps) => {
   return (
     <div className="h-screen bg-slate-900 text-white flex p-4 gap-4 overflow-hidden font-sans" onContextMenu={handleRightClick}>
       
-      {/* ЛІВА КОЛОНКА (Чат) */}
+      {/* ЛІВА КОЛОНКА */}
       <div className="w-80 flex flex-col gap-2 flex-shrink-0">
           <div className="flex-shrink-0">
             <button onClick={onLeave} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-600 text-gray-300 hover:text-white rounded-lg transition flex items-center gap-2 w-full justify-center">
@@ -326,7 +376,7 @@ export const ActiveGame = ({ room, grid, onLeave }: ActiveGameProps) => {
           </div>
       </div>
 
-      {/* ЦЕНТР (ІГРОВЕ ПОЛЕ + СТАТУС) */}
+      {/* ЦЕНТР */}
       <div className="flex-1 flex flex-col relative bg-slate-800/50 rounded-xl border border-slate-700 overflow-hidden shadow-inner p-2">
           
           {/* СТАТУС БАР */}
@@ -334,13 +384,18 @@ export const ActiveGame = ({ room, grid, onLeave }: ActiveGameProps) => {
              <div className={`h-10 flex items-center justify-center rounded-full px-6 border shadow-sm backdrop-blur-md transition-all w-auto ${isFinished ? "bg-slate-900 border-yellow-500/50 shadow-yellow-900/20" : "bg-slate-900/90 border-slate-600"}`}>
                 {isFinished ? (
                     <span className="text-yellow-400 font-bold text-sm flex items-center gap-2 animate-pulse">
-                        🏆 {room.winnerId === 'draw' ? "DRAW" : `WINNER: ${winnerName}`}
+                        {room.winnerId === 'draw' ? "НІЧИЯ" : `ПЕРЕМІГ: ${winnerName}`}
                     </span>
                 ) : notification ? (
                     <span className="text-yellow-400 font-bold animate-pulse text-sm flex items-center gap-2">{notification}</span>
                 ) : (
                     <span className={`text-sm font-mono flex items-center gap-2 ${isMyTurn ? "text-green-400 font-bold" : "text-slate-400"}`}>
-                        {isMyTurn ? <>YOUR TURN</> : <>Wait: {currentPlayerName}</>}
+                        {isMyTurn ? (
+                            !hasTerritory ? <span className="animate-pulse text-yellow-300 uppercase tracking-wider">{startHint}</span> 
+                            : <>➤ ТВІЙ ХІД</>
+                        ) : (
+                            <>Чекаємо: {currentPlayerName}</>
+                        )}
                     </span>
                 )}
              </div>
@@ -358,7 +413,7 @@ export const ActiveGame = ({ room, grid, onLeave }: ActiveGameProps) => {
           </div>
       </div>
 
-      {/* ПРАВА КОЛОНКА (Управління) */}
+      {/* ПРАВА КОЛОНКА */}
       <div className="w-80 flex flex-col gap-4 flex-shrink-0">
             <div className="bg-slate-800 p-6 rounded-2xl shadow-xl border border-slate-700 flex flex-col items-center">
                 <div className="flex justify-between w-full mb-2">
@@ -383,7 +438,7 @@ export const ActiveGame = ({ room, grid, onLeave }: ActiveGameProps) => {
                     <h3 className="text-xs text-slate-400 uppercase font-bold">{isFinished ? "Final Results" : "Players & Scores"}</h3>
                     <span className="font-mono text-xs text-slate-500">ID: {room.id}</span>
                 </div>
-                <div className="space-y-2 pr-1">
+                <div className="space-y-2 overflow-y-auto custom-scrollbar pr-1">
                     <PlayersList />
                 </div>
             </div>

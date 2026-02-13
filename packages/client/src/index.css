@@ -2,7 +2,11 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Додатково: зробимо фон сторінки трохи темнішим, щоб поле виділялось */
 body {
   @apply bg-slate-900 text-white;
+}
+html, body {
+  overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: none;
 }

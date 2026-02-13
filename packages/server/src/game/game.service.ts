@@ -63,6 +63,7 @@ export class GameService {
       currentTurnIndex: 0,
       board: initialBoard,
       consecutiveSkips: 0,
+      startTurnIndex: 0,
       chatHistory: []
     };
     this.addMessage(newRoom, 'system', 'System', `Room created by ${dto.username}`, '#9ca3af', true);
@@ -400,38 +401,51 @@ export class GameService {
       const player = room.players.find(p => p.socketId === clientSocketId);
       if (!player) throw new Error('Player not found');
 
-      // --- НОВА ПЕРЕВІРКА ---
       // Не даємо голосувати, якщо в кімнаті залишився тільки один гравець
       if (room.players.length < 2) {
-          // Можна кинути помилку, щоб клієнт показав alert
           throw new WsException('Need at least 2 players for a rematch!'); 
-          // Або просто ігнорувати: return room;
       }
-      // ----------------------
 
       player.wantsRematch = true;
 
-      // Якщо всі проголосували - рестарт
+      // ЯКЩО ВСІ ПРОГОЛОСУВАЛИ - РЕСТАРТ
       if (room.players.every(p => p.wantsRematch)) {
-           // Ще одна перевірка на всяк випадок
            if (room.players.length < 2) return room; 
+
+           // --- ПОЧАТОК ЗМІН: ЛОГІКА ЗМІНИ ПЕРШОГО ГРАВЦЯ ---
+           
+           // 1. Беремо індекс того, хто починав МИНУЛУ гру, і додаємо 1
+           let nextStartIndex = (room.startTurnIndex || 0) + 1;
+           
+           // 2. Якщо індекс вийшов за межі, повертаємось до 0
+           if (nextStartIndex >= room.players.length) {
+               nextStartIndex = 0;
+           }
+       
+           // 3. Зберігаємо новий стартовий індекс
+           room.startTurnIndex = nextStartIndex;
+           // ------------------------------------------------
 
            const size = room.settings.boardSize;
            room.board = Array(size).fill(null).map(() => Array(size).fill(null));
            
-           // ... (скидання гри) ...
            room.status = 'playing';
-           room.currentTurnIndex = 0;
+           
+           // 4. Встановлюємо поточний хід на нового "першого" гравця
+           room.currentTurnIndex = nextStartIndex; 
+           
            room.consecutiveSkips = 0;
            room.winnerId = undefined; 
-           room.gameResult = undefined; // Очищаємо результати попередньої гри
+           room.gameResult = undefined;
 
            room.players.forEach(p => { 
                p.wantsRematch = false; 
-               p.isReady = true; 
+               // p.isReady = true; // Це поле зазвичай для лоббі, тут можна не чіпати
            });
            
-           this.addMessage(room, 'system', 'System', 'Game Restarted!', '#fbbf24', true);
+           // Пишемо в чат, хто починає
+           const starterName = room.players[nextStartIndex].username;
+           this.addMessage(room, 'system', 'System', `Game Restarted! ${starterName} starts first.`, '#fbbf24', true);
       }
       return room;
   }
