@@ -228,7 +228,7 @@ export const ActiveGame = ({ room, grid, onLeave }: ActiveGameProps) => {
             return (
                 <div key={p.id} className={`flex items-center justify-between p-3 rounded-lg border transition-all 
                     ${isWinner ? "bg-yellow-900/20 border-yellow-500/50" : 
-                      isActive ? "bg-slate-700 border-blue-500/50 scale-[1.02]" : 
+                      isActive ? "bg-slate-700 border-blue-500/50" : 
                       "bg-slate-900/40 border-slate-700/50 opacity-70"}`}>
                     <div className="flex items-center gap-3 overflow-hidden">
                         <div className="relative">
@@ -239,7 +239,7 @@ export const ActiveGame = ({ room, grid, onLeave }: ActiveGameProps) => {
                             {p.username} {p.socketId === socket.id && "(You)"}
                         </span>
                     </div>
-                    <span className="font-bold">{score}</span>
+                    {p.socketId === socket.id && <span className="font-bold">{score}</span>}
                 </div>
             );
         })}
@@ -438,7 +438,7 @@ export const ActiveGame = ({ room, grid, onLeave }: ActiveGameProps) => {
                     <h3 className="text-xs text-slate-400 uppercase font-bold">{isFinished ? "Final Results" : "Players & Scores"}</h3>
                     <span className="font-mono text-xs text-slate-500">ID: {room.id}</span>
                 </div>
-                <div className="space-y-2 overflow-y-auto custom-scrollbar pr-1">
+                <div className="space-y-2 pr-1">
                     <PlayersList />
                 </div>
             </div>
